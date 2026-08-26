@@ -1,0 +1,7 @@
+{
+  "variants": {
+    "": {
+      "model": "torcherino_ae_mod:block/torcherino"
+    }
+  }
+}

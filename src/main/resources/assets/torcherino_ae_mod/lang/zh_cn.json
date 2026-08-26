@@ -1,0 +1,13 @@
+{
+  "itemGroup.torcherino_ae_mod": "扭力火把 AE",
+  "block.torcherino_ae_mod.torcherino": "加速火把",
+  "item.torcherino_ae_mod.torcherino": "加速火把",
+
+  "torcherino_ae_mod.configuration.title": "扭力火把 AE 配置",
+  "torcherino_ae_mod.configuration.section.torcherino_ae_mod.common.toml": "扭力火把 AE 配置",
+  "torcherino_ae_mod.configuration.section.torcherino_ae_mod.common.toml.title": "扭力火把 AE 配置",
+  "torcherino_ae_mod.configuration.items": "物品列表",
+  "torcherino_ae_mod.configuration.logDirtBlock": "记录泥土方块",
+  "torcherino_ae_mod.configuration.magicNumberIntroduction": "魔法数字文本",
+  "torcherino_ae_mod.configuration.magicNumber": "魔法数字"
+}

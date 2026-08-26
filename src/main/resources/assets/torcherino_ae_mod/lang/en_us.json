@@ -1,0 +1,13 @@
+{
+  "itemGroup.torcherino_ae_mod": "Torcherino AE Tab",
+  "block.torcherino_ae_mod.torcherino": "Acceleration Torch",
+  "item.torcherino_ae_mod.torcherino": "Acceleration Torch",
+
+  "torcherino_ae_mod.configuration.title": "Torcherino ae mod Configs",
+  "torcherino_ae_mod.configuration.section.torcherino_ae_mod.common.toml": "Torcherino ae mod Configs",
+  "torcherino_ae_mod.configuration.section.torcherino_ae_mod.common.toml.title": "Torcherino ae mod Configs",
+  "torcherino_ae_mod.configuration.items": "Item List",
+  "torcherino_ae_mod.configuration.logDirtBlock": "Log Dirt Block",
+  "torcherino_ae_mod.configuration.magicNumberIntroduction": "Magic Number Text",
+  "torcherino_ae_mod.configuration.magicNumber": "Magic Number"
+}

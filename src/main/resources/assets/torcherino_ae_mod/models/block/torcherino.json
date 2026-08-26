@@ -1,0 +1,7 @@
+{
+  "parent": "minecraft:block/template_torch",
+  "textures": {
+    "torch": "torcherino_ae_mod:block/torcherino",
+    "particle": "torcherino_ae_mod:block/torcherino"
+  }
+}
