@@ -1,8 +1,9 @@
 package com.tianhai.torcherino_ae.block;
 
 import com.tianhai.torcherino_ae.Torcherinoaemod;
+import com.tianhai.torcherino_ae.item.ModBlockItem;
 import com.tianhai.torcherino_ae.item.ModItems;
-import net.minecraft.world.item.BlockItem;
+import net.minecraft.world.item.Item;
 import net.minecraft.world.level.block.state.BlockBehaviour;
 import net.neoforged.neoforge.registries.DeferredBlock;
 import net.neoforged.neoforge.registries.DeferredItem;
@@ -18,6 +19,7 @@ public class ModBlocks {
                     .noOcclusion()
                     .lightLevel(state -> 14)));
 
-    public static final DeferredItem<BlockItem> TORCHERINO_ITEM =
-            ModItems.ITEMS.registerSimpleBlockItem("torcherino", TORCHERINO);
+    public static final DeferredItem<ModBlockItem> TORCHERINO_ITEM =
+            ModItems.ITEMS.register("torcherino",
+                    () -> new ModBlockItem(TORCHERINO.get(), new Item.Properties(), "block.torcherino_ae_mod.torcherino.tooltip"));
 }

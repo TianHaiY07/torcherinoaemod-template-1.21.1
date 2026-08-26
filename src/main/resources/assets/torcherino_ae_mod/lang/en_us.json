@@ -2,12 +2,14 @@
   "itemGroup.torcherino_ae_mod": "Torcherino AE Tab",
   "block.torcherino_ae_mod.torcherino": "Acceleration Torch",
   "item.torcherino_ae_mod.torcherino": "Acceleration Torch",
+  "block.torcherino_ae_mod.torcherino.tooltip": "Accelerates nearby Applied Energistics 2 machines. Right-click to toggle, shift+right-click to cycle speed.",
 
   "torcherino_ae_mod.configuration.title": "Torcherino ae mod Configs",
   "torcherino_ae_mod.configuration.section.torcherino_ae_mod.common.toml": "Torcherino ae mod Configs",
   "torcherino_ae_mod.configuration.section.torcherino_ae_mod.common.toml.title": "Torcherino ae mod Configs",
-  "torcherino_ae_mod.configuration.items": "Item List",
-  "torcherino_ae_mod.configuration.logDirtBlock": "Log Dirt Block",
-  "torcherino_ae_mod.configuration.magicNumberIntroduction": "Magic Number Text",
-  "torcherino_ae_mod.configuration.magicNumber": "Magic Number"
+  "torcherino_ae_mod.configuration.defaultRangeX": "Default Range X",
+  "torcherino_ae_mod.configuration.defaultRangeY": "Default Range Y",
+  "torcherino_ae_mod.configuration.defaultRangeZ": "Default Range Z",
+  "torcherino_ae_mod.configuration.defaultSpeed": "Default Speed",
+  "torcherino_ae_mod.configuration.defaultActive": "Default Active"
 }

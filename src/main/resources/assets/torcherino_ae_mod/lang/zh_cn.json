@@ -2,12 +2,14 @@
   "itemGroup.torcherino_ae_mod": "扭力火把 AE",
   "block.torcherino_ae_mod.torcherino": "加速火把",
   "item.torcherino_ae_mod.torcherino": "加速火把",
+  "block.torcherino_ae_mod.torcherino.tooltip": "加速周围的应用能源 2 机器。右键切换开关，Shift+右键循环切换加速倍率。",
 
   "torcherino_ae_mod.configuration.title": "扭力火把 AE 配置",
   "torcherino_ae_mod.configuration.section.torcherino_ae_mod.common.toml": "扭力火把 AE 配置",
   "torcherino_ae_mod.configuration.section.torcherino_ae_mod.common.toml.title": "扭力火把 AE 配置",
-  "torcherino_ae_mod.configuration.items": "物品列表",
-  "torcherino_ae_mod.configuration.logDirtBlock": "记录泥土方块",
-  "torcherino_ae_mod.configuration.magicNumberIntroduction": "魔法数字文本",
-  "torcherino_ae_mod.configuration.magicNumber": "魔法数字"
+  "torcherino_ae_mod.configuration.defaultRangeX": "默认横向范围 X",
+  "torcherino_ae_mod.configuration.defaultRangeY": "默认纵向范围 Y",
+  "torcherino_ae_mod.configuration.defaultRangeZ": "默认横向范围 Z",
+  "torcherino_ae_mod.configuration.defaultSpeed": "默认加速倍率",
+  "torcherino_ae_mod.configuration.defaultActive": "默认启用"
 }

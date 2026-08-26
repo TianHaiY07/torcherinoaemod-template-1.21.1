@@ -1,42 +1,32 @@
 package com.tianhai.torcherino_ae;
 
-import java.util.List;
-import java.util.Set;
-import java.util.stream.Collectors;
-
-import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.resources.ResourceLocation;
-import net.minecraft.world.item.Item;
-import net.neoforged.bus.api.SubscribeEvent;
-import net.neoforged.fml.common.EventBusSubscriber;
-import net.neoforged.fml.event.config.ModConfigEvent;
 import net.neoforged.neoforge.common.ModConfigSpec;
 
-// An example config class. This is not required, but it's a good idea to have one to keep your config organized.
-// Demonstrates how to use Neo's config APIs
+// 加速火把的通用配置，会在首次加载时生成配置文件。
 public class Config {
     private static final ModConfigSpec.Builder BUILDER = new ModConfigSpec.Builder();
 
-    public static final ModConfigSpec.BooleanValue LOG_DIRT_BLOCK = BUILDER
-            .comment("Whether to log the dirt block on common setup")
-            .define("logDirtBlock", true);
+    // 服务器与客户端都应保持相同的配置，因为它们不会被自动同步。
+    public static final ModConfigSpec.IntValue DEFAULT_RANGE_X = BUILDER
+            .comment("Default horizontal range (X) of the newly placed acceleration torch, in blocks.")
+            .defineInRange("defaultRangeX", 3, 0, 64);
 
-    public static final ModConfigSpec.IntValue MAGIC_NUMBER = BUILDER
-            .comment("A magic number")
-            .defineInRange("magicNumber", 42, 0, Integer.MAX_VALUE);
+    public static final ModConfigSpec.IntValue DEFAULT_RANGE_Z = BUILDER
+            .comment("Default horizontal range (Z) of the newly placed acceleration torch, in blocks.")
+            .defineInRange("defaultRangeZ", 3, 0, 64);
 
-    public static final ModConfigSpec.ConfigValue<String> MAGIC_NUMBER_INTRODUCTION = BUILDER
-            .comment("What you want the introduction message to be for the magic number")
-            .define("magicNumberIntroduction", "The magic number is... ");
+    public static final ModConfigSpec.IntValue DEFAULT_RANGE_Y = BUILDER
+            .comment("Default vertical range (Y) of the newly placed acceleration torch, in blocks.")
+            .defineInRange("defaultRangeY", 3, 0, 64);
 
-    // a list of strings that are treated as resource locations for items
-    public static final ModConfigSpec.ConfigValue<List<? extends String>> ITEM_STRINGS = BUILDER
-            .comment("A list of items to log on common setup.")
-            .defineListAllowEmpty("items", List.of("minecraft:iron_ingot"), () -> "", Config::validateItemName);
+    public static final ModConfigSpec.IntValue DEFAULT_SPEED = BUILDER
+            .comment("Default acceleration multiplier: how many times per tick AE block entities are ticked.")
+            .defineInRange("defaultSpeed", 4, 1, 64);
+
+    public static final ModConfigSpec.BooleanValue DEFAULT_ACTIVE = BUILDER
+            .comment("Whether a newly placed acceleration torch is active by default. "
+                    + "Right-click a torch to toggle it, shift+right-click to cycle its speed.")
+            .define("defaultActive", true);
 
     static final ModConfigSpec SPEC = BUILDER.build();
-
-    private static boolean validateItemName(final Object obj) {
-        return obj instanceof String itemName && BuiltInRegistries.ITEM.containsKey(ResourceLocation.parse(itemName));
-    }
 }

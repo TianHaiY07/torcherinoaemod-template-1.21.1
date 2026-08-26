@@ -46,7 +46,7 @@ displayName="${mod_name}" #mandatory
 
 # The description text for the mod (multi line!) (#mandatory)
 description='''
-Example mod description.
+An Applied Energistics 2 addon that adds an Acceleration Torch which speeds up nearby AE2 machines.
 '''
 
 # The [[mixins]] block allows you to declare your mixin config to FML so that it gets loaded.
@@ -93,3 +93,13 @@ config="${mod_id}.mixins.json"
 # stop your mod loading on the server for example.
 #[features.${mod_id}]
 #openGLVersion="[3.2,)"
+
+# This mod is an addon for Applied Energistics 2, so AE2 is a hard dependency.
+[[dependencies.${mod_id}]]
+    modId="ae2"
+    type="required"
+    versionRange="[19.2,)"
+
+    # This mod must be loaded AFTER its dependency
+    ordering="AFTER"
+    side="BOTH"
