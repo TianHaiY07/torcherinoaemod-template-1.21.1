@@ -1,0 +1,18 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "pattern": [
+    "pEp",
+    "EsE",
+    "pEp"
+  ],
+  "key": {
+    "p": { "item": "ae2:logic_processor" },
+    "E": { "item": "ae2:energy_cell" },
+    "s": { "item": "ae2:speed_card" }
+  },
+  "result": {
+    "item": "torcherino_ae_mod:ae_accelerator",
+    "count": 1
+  }
+}

@@ -1,0 +1,68 @@
+{
+  "variants": {
+    "facing=north,online=false,working=false": {
+      "model": "torcherino_ae_mod:block/ae_accelerator",
+      "y": 180
+    },
+    "facing=north,online=true,working=false": {
+      "model": "torcherino_ae_mod:block/ae_accelerator_on",
+      "y": 180
+    },
+    "facing=north,online=false,working=true": {
+      "model": "torcherino_ae_mod:block/ae_accelerator_inactive",
+      "y": 180
+    },
+    "facing=north,online=true,working=true": {
+      "model": "torcherino_ae_mod:block/ae_accelerator_inactive",
+      "y": 180
+    },
+    "facing=south,online=false,working=false": {
+      "model": "torcherino_ae_mod:block/ae_accelerator",
+      "y": 0
+    },
+    "facing=south,online=true,working=false": {
+      "model": "torcherino_ae_mod:block/ae_accelerator_on",
+      "y": 0
+    },
+    "facing=south,online=false,working=true": {
+      "model": "torcherino_ae_mod:block/ae_accelerator_inactive",
+      "y": 0
+    },
+    "facing=south,online=true,working=true": {
+      "model": "torcherino_ae_mod:block/ae_accelerator_inactive",
+      "y": 0
+    },
+    "facing=west,online=false,working=false": {
+      "model": "torcherino_ae_mod:block/ae_accelerator",
+      "y": 90
+    },
+    "facing=west,online=true,working=false": {
+      "model": "torcherino_ae_mod:block/ae_accelerator_on",
+      "y": 90
+    },
+    "facing=west,online=false,working=true": {
+      "model": "torcherino_ae_mod:block/ae_accelerator_inactive",
+      "y": 90
+    },
+    "facing=west,online=true,working=true": {
+      "model": "torcherino_ae_mod:block/ae_accelerator_inactive",
+      "y": 90
+    },
+    "facing=east,online=false,working=false": {
+      "model": "torcherino_ae_mod:block/ae_accelerator",
+      "y": 270
+    },
+    "facing=east,online=true,working=false": {
+      "model": "torcherino_ae_mod:block/ae_accelerator_on",
+      "y": 270
+    },
+    "facing=east,online=false,working=true": {
+      "model": "torcherino_ae_mod:block/ae_accelerator_inactive",
+      "y": 270
+    },
+    "facing=east,online=true,working=true": {
+      "model": "torcherino_ae_mod:block/ae_accelerator_inactive",
+      "y": 270
+    }
+  }
+}

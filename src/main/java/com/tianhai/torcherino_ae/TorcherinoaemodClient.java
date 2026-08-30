@@ -1,31 +1,45 @@
 package com.tianhai.torcherino_ae;
 
-import net.minecraft.client.Minecraft;
+import com.tianhai.torcherino_ae.blockentity.ModBlockEntities;
+import com.tianhai.torcherino_ae.client.ModScreens;
+import com.tianhai.torcherino_ae.client.render.AEAcceleratorRenderer;
+import com.tianhai.torcherino_ae.menu.AEAcceleratorMenu;
+import com.tianhai.torcherino_ae.menu.AEAcceleratorScreen;
+import net.minecraft.network.chat.Component;
+import net.minecraft.world.entity.player.Inventory;
 import net.neoforged.api.distmarker.Dist;
-import net.neoforged.bus.api.SubscribeEvent;
-import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.common.EventBusSubscriber;
-import net.neoforged.fml.common.Mod;
-import net.neoforged.fml.event.lifecycle.FMLClientSetupEvent;
-import net.neoforged.neoforge.client.gui.ConfigurationScreen;
-import net.neoforged.neoforge.client.gui.IConfigScreenFactory;
+import net.neoforged.neoforge.client.event.EntityRenderersEvent;
+import net.neoforged.neoforge.client.event.ModelEvent;
+import net.neoforged.neoforge.client.event.RegisterMenuScreensEvent;
+import net.neoforged.bus.api.SubscribeEvent;
 
-// This class will not load on dedicated servers. Accessing client side code from here is safe.
-@Mod(value = Torcherinoaemod.MOD_ID, dist = Dist.CLIENT)
-// You can use EventBusSubscriber to automatically register all static methods in the class annotated with @SubscribeEvent
+/**
+ * 客户端初始化：注册 AE 加速器方块界面的菜单屏幕，以及「接电发光 + 炫彩流光」方块实体渲染器。
+ */
 @EventBusSubscriber(modid = Torcherinoaemod.MOD_ID, value = Dist.CLIENT)
 public class TorcherinoaemodClient {
-    public TorcherinoaemodClient(ModContainer container) {
-        // Allows NeoForge to create a config screen for this mod's configs.
-        // The config screen is accessed by going to the Mods screen > clicking on your mod > clicking on config.
-        // Do not forget to add translations for your config options to the en_us.json file.
-        container.registerExtensionPoint(IConfigScreenFactory.class, ConfigurationScreen::new);
+
+    @SubscribeEvent
+    public static void registerScreens(RegisterMenuScreensEvent event) {
+        // 使用本模组自定义样式：generatedBackground 直接复用 AE2 的 guis/background.png
+        // 生成无物品栏的纯背景，并通过样式 JSON 的 upgrades widget 在界面右侧放置升级卡插槽。
+        // 样式文件在本模组命名空间下，需用自定义加载器读取（StyleManager 固定读 ae2 命名空间）。
+        event.register(AEAcceleratorMenu.TYPE,
+                (AEAcceleratorMenu menu, Inventory playerInventory, Component title) -> new AEAcceleratorScreen(
+                        menu, playerInventory, title,
+                        ModScreens.loadStyleDoc("/screens/ae_accelerator.json")));
     }
 
     @SubscribeEvent
-    static void onClientSetup(FMLClientSetupEvent event) {
-        // Some client setup code
-        Torcherinoaemod.LOGGER.info("HELLO FROM CLIENT SETUP");
-        Torcherinoaemod.LOGGER.info("MINECRAFT NAME >> {}", Minecraft.getInstance().getUser().getName());
+    public static void registerRenderers(EntityRenderersEvent.RegisterRenderers event) {
+        // 为 AE 加速器注册自定义方块实体渲染器：叠加发光带并生成炫彩流光粒子。
+        event.registerBlockEntityRenderer(ModBlockEntities.AE_ACCELERATOR.get(), AEAcceleratorRenderer::new);
+    }
+
+    @SubscribeEvent
+    public static void registerAdditionalModels(ModelEvent.RegisterAdditional event) {
+        // 发光带模型未出现在任何方块状态里，必须单独注册才能被模型管理器加载。
+        event.register(AEAcceleratorRenderer.LIGHTS_MODEL);
     }
 }

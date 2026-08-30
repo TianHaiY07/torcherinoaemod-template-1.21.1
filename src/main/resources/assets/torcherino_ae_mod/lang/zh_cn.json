@@ -1,15 +1,17 @@
 {
-  "itemGroup.torcherino_ae_mod": "扭力火把 AE",
-  "block.torcherino_ae_mod.torcherino": "加速火把",
-  "item.torcherino_ae_mod.torcherino": "加速火把",
-  "block.torcherino_ae_mod.torcherino.tooltip": "加速周围的应用能源 2 机器。右键切换开关，Shift+右键循环切换加速倍率。",
-
-  "torcherino_ae_mod.configuration.title": "扭力火把 AE 配置",
-  "torcherino_ae_mod.configuration.section.torcherino_ae_mod.common.toml": "扭力火把 AE 配置",
-  "torcherino_ae_mod.configuration.section.torcherino_ae_mod.common.toml.title": "扭力火把 AE 配置",
-  "torcherino_ae_mod.configuration.defaultRangeX": "默认横向范围 X",
-  "torcherino_ae_mod.configuration.defaultRangeY": "默认纵向范围 Y",
-  "torcherino_ae_mod.configuration.defaultRangeZ": "默认横向范围 Z",
-  "torcherino_ae_mod.configuration.defaultSpeed": "默认加速倍率",
-  "torcherino_ae_mod.configuration.defaultActive": "默认启用"
+  "block.torcherino_ae_mod.ae_accelerator": "AE加速器",
+  "item.torcherino_ae_mod.ae_accelerator": "AE加速器",
+  "itemGroup.torcherino_ae_mod": "加速增强",
+  "gui.torcherino_ae_mod.ae_accelerator": "AE加速器",
+  "gui.torcherino_ae_mod.ae_accelerator.working": "工作中",
+  "gui.torcherino_ae_mod.ae_accelerator.idle": "已接入网络，等待能量",
+  "gui.torcherino_ae_mod.ae_accelerator.offline": "未接入网络",
+  "gui.torcherino_ae_mod.ae_accelerator.search": "搜索设备",
+  "gui.torcherino_ae_mod.ae_accelerator.empty": "网络中暂无设备",
+  "gui.torcherino_ae_mod.ae_accelerator.accelerate": "左键加速",
+  "gui.torcherino_ae_mod.ae_accelerator.accelerating": "左键取消加速",
+  "gui.torcherino_ae_mod.ae_accelerator.right_hint": "右键调整加速倍数",
+  "gui.torcherino_ae_mod.ae_accelerator.popup_hint": "加速倍数：%sx（最高 %sx）",
+  "gui.torcherino_ae_mod.ae_accelerator.accel_hint": "点击上方设备开始加速",
+  "gui.torcherino_ae_mod.ae_accelerator.accel_status": "加速 %s 台设备 · 最高 %sx"
 }

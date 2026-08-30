@@ -103,3 +103,11 @@ config="${mod_id}.mixins.json"
     # This mod must be loaded AFTER its dependency
     ordering="AFTER"
     side="BOTH"
+
+# GuideME is a mandatory runtime dependency of AE2 19.2.x, declared here as a launch prerequisite.
+[[dependencies.${mod_id}]]
+    modId="guideme"
+    type="required"
+    versionRange="[21.1.1,)"
+    ordering="AFTER"
+    side="BOTH"

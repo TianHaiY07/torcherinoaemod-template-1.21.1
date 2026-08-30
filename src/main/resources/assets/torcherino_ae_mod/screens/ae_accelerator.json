@@ -1,0 +1,87 @@
+{
+  "palette": {
+    "DEFAULT_TEXT_COLOR": "#413f54",
+    "MUTED_TEXT_COLOR": "#878fa5",
+    "SELECTION_COLOR": "#ace9ff",
+    "TEXTFIELD_PLACEHOLDER": "#dedfe3",
+    "TEXTFIELD_SELECTION": "#FF0000FF",
+    "TEXTFIELD_ERROR": "#FF1900",
+    "TEXTFIELD_TEXT": "#f2f2f2",
+    "ERROR": "#CE2401"
+  },
+  "background": {
+    "texture": "torcherino_ae_mod:textures/gui/ae_accelerator_gui.png",
+    "srcRect": [0, 0, 176, 186]
+  },
+  "images": {
+    "deviceListBg": {
+      "texture": "torcherino_ae_mod:textures/gui/ae_accelerator_gui.png",
+      "srcRect": [0, 186, 139, 22]
+    },
+    "deviceListSlotSelected": {
+      "texture": "torcherino_ae_mod:textures/gui/ae_accelerator_gui.png",
+      "srcRect": [0, 208, 139, 22]
+    }
+  },
+  "slots": {
+    "PLAYER_INVENTORY": {
+      "left": 8,
+      "top": 102,
+      "grid": "BREAK_AFTER_9COLS"
+    },
+    "PLAYER_HOTBAR": {
+      "left": 8,
+      "top": 160,
+      "grid": "HORIZONTAL"
+    }
+  },
+  "widgets": {
+    "search": {
+      "left": 58,
+      "top": 3,
+      "width": 90,
+      "height": 12
+    },
+    "deviceList": {
+      "left": 8,
+      "top": 19,
+      "width": 139,
+      "height": 66
+    },
+    "scrollbar": {
+      "left": 155,
+      "top": 16,
+      "height": 70
+    },
+    "upgrades": {
+      "right": 2,
+      "top": 0
+    },
+    "deviceConfigPopup": {
+      "left": -13,
+      "top": 188,
+      "width": 203,
+      "height": 32
+    }
+  },
+  "text": {
+    "dialog_title": {
+      "text": {
+        "translate": "block.torcherino_ae_mod.ae_accelerator"
+      },
+      "position": {
+        "left": 8,
+        "top": 5
+      }
+    },
+    "player_inventory_title": {
+      "text": {
+        "translate": "container.inventory"
+      },
+      "position": {
+        "left": 8,
+        "bottom": 95
+      }
+    }
+  }
+}

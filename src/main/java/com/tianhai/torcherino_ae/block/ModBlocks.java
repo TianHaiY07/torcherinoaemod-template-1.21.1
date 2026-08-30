@@ -1,25 +1,19 @@
 package com.tianhai.torcherino_ae.block;
 
+import appeng.block.AEBaseBlock;
 import com.tianhai.torcherino_ae.Torcherinoaemod;
-import com.tianhai.torcherino_ae.item.ModBlockItem;
-import com.tianhai.torcherino_ae.item.ModItems;
-import net.minecraft.world.item.Item;
-import net.minecraft.world.level.block.state.BlockBehaviour;
 import net.neoforged.neoforge.registries.DeferredBlock;
-import net.neoforged.neoforge.registries.DeferredItem;
 import net.neoforged.neoforge.registries.DeferredRegister;
 
+/**
+ * 方块注册容器。
+ * 集中管理本模组所有方块，采用 DeferredRegister / DeferredBlock 现代注册风格。
+ */
 public class ModBlocks {
+    // 方块注册表，命名空间为本模组 modId。
     public static final DeferredRegister.Blocks BLOCKS = DeferredRegister.createBlocks(Torcherinoaemod.MOD_ID);
 
-    public static final DeferredBlock<TorcherinoBlock> TORCHERINO = BLOCKS.register("torcherino",
-            () -> new TorcherinoBlock(BlockBehaviour.Properties.of()
-                    .instabreak()
-                    .noCollission()
-                    .noOcclusion()
-                    .lightLevel(state -> 14)));
-
-    public static final DeferredItem<ModBlockItem> TORCHERINO_ITEM =
-            ModItems.ITEMS.register("torcherino",
-                    () -> new ModBlockItem(TORCHERINO.get(), new Item.Properties(), "block.torcherino_ae_mod.torcherino.tooltip"));
+    // AE 加速器方块：一块可插入升级卡的 AE2 机器。
+    public static final DeferredBlock<AEAcceleratorBlock> AE_ACCELERATOR = BLOCKS.register("ae_accelerator",
+            () -> new AEAcceleratorBlock(AEBaseBlock.metalProps()));
 }

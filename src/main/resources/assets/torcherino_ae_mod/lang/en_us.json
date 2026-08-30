@@ -1,15 +1,17 @@
 {
-  "itemGroup.torcherino_ae_mod": "Torcherino AE Tab",
-  "block.torcherino_ae_mod.torcherino": "Acceleration Torch",
-  "item.torcherino_ae_mod.torcherino": "Acceleration Torch",
-  "block.torcherino_ae_mod.torcherino.tooltip": "Accelerates nearby Applied Energistics 2 machines. Right-click to toggle, shift+right-click to cycle speed.",
-
-  "torcherino_ae_mod.configuration.title": "Torcherino ae mod Configs",
-  "torcherino_ae_mod.configuration.section.torcherino_ae_mod.common.toml": "Torcherino ae mod Configs",
-  "torcherino_ae_mod.configuration.section.torcherino_ae_mod.common.toml.title": "Torcherino ae mod Configs",
-  "torcherino_ae_mod.configuration.defaultRangeX": "Default Range X",
-  "torcherino_ae_mod.configuration.defaultRangeY": "Default Range Y",
-  "torcherino_ae_mod.configuration.defaultRangeZ": "Default Range Z",
-  "torcherino_ae_mod.configuration.defaultSpeed": "Default Speed",
-  "torcherino_ae_mod.configuration.defaultActive": "Default Active"
+  "block.torcherino_ae_mod.ae_accelerator": "AE Accelerator",
+  "item.torcherino_ae_mod.ae_accelerator": "AE Accelerator",
+  "itemGroup.torcherino_ae_mod": "Torcherino AE",
+  "gui.torcherino_ae_mod.ae_accelerator": "AE Accelerator",
+  "gui.torcherino_ae_mod.ae_accelerator.working": "Working",
+  "gui.torcherino_ae_mod.ae_accelerator.idle": "Connected, waiting for power",
+  "gui.torcherino_ae_mod.ae_accelerator.offline": "Not connected to network",
+  "gui.torcherino_ae_mod.ae_accelerator.search": "Search devices",
+  "gui.torcherino_ae_mod.ae_accelerator.empty": "No devices on network",
+  "gui.torcherino_ae_mod.ae_accelerator.accelerate": "Left-click to accelerate",
+  "gui.torcherino_ae_mod.ae_accelerator.accelerating": "Left-click to stop accelerating",
+  "gui.torcherino_ae_mod.ae_accelerator.right_hint": "Right-click to adjust multiplier",
+  "gui.torcherino_ae_mod.ae_accelerator.popup_hint": "Multiplier: %sx (max %sx)",
+  "gui.torcherino_ae_mod.ae_accelerator.accel_hint": "Click a device above to accelerate it",
+  "gui.torcherino_ae_mod.ae_accelerator.accel_status": "Accelerating %s devices · Max %sx"
 }

@@ -128,6 +128,20 @@ dependencies {
     implementation "maven.modrinth:XxWD5pD3:DUSBnYm0"
     // GuideME is a mandatory runtime dependency of AE2 19.2.x, required to run the dev environment.
     implementation "maven.modrinth:Ck4E7v7R:9aIv5HxH"
+
+    // 本地 mods：把 mod jar 放入项目根目录的 libs/ 文件夹即可在开发环境启动时自动加载。
+    // - 使用 implementation：既可在代码中直接引用 jar 内的类，也会在 runClient/runServer 运行时被 FML 作为 mod 加载。
+    // - 若只想在运行时加载而不在编译期引用，可改为 runtimeOnly。
+    implementation fileTree(dir: 'libs', include: ['*.jar'])
+
+    // JUnit 5 for unit-testing the engine's pure logic
+    testImplementation platform('org.junit:junit-bom:5.10.2')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+tasks.named('test', Test) {
+    useJUnitPlatform()
 }
 
 // This block of code expands all declared replace properties in the specified resource targets.
