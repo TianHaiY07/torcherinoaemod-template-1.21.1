@@ -6,6 +6,7 @@ import com.tianhai.torcherino_ae.block.AEAcceleratorBlock;
 import com.tianhai.torcherino_ae.blockentity.AEAcceleratorBlockEntity;
 import com.tianhai.torcherino_ae.blockentity.ModBlockEntities;
 import com.tianhai.torcherino_ae.item.ModCreativeTabs;
+import com.tianhai.torcherino_ae.item.ModDataComponents;
 import com.tianhai.torcherino_ae.item.ModItems;
 import com.tianhai.torcherino_ae.menu.ModMenus;
 import appeng.api.AECapabilities;
@@ -38,6 +39,7 @@ public class Torcherinoaemod {
         // 注册所有 DeferredRegister 容器到模组事件总线
         ModBlocks.BLOCKS.register(modEventBus);
         ModItems.ITEMS.register(modEventBus);
+        ModDataComponents.DR.register(modEventBus);
         ModBlockEntities.BLOCK_ENTITY_TYPES.register(modEventBus);
         ModCreativeTabs.CREATIVE_MODE_TABS.register(modEventBus);
         ModMenus.MENUS.register(modEventBus);

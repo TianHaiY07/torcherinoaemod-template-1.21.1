@@ -234,9 +234,15 @@ public class DeviceListWidget implements ICompositeWidget {
         }
         DeviceEntry hovered = hitTestDevice(new Point(mouseX - bounds.getX(), mouseY - bounds.getY()));
         if (hovered != null) {
-            // 加速中的设备提示「左键取消加速」，未加速的设备提示「左键加速」；均提示右键可调倍数。
-            Component hint = Component.translatable("gui." + Torcherinoaemod.MOD_ID + ".ae_accelerator."
-                    + (hovered.accelerated() ? "accelerating" : "accelerate"));
+            // 提示语：合成 CPU 用「智能加速」语义，普通设备用普通「加速」语义。
+            // 加速中的设备提示「左键取消」，未加速提示「左键开始」；均提示右键可调倍数。
+            String actionKey;
+            if (hovered.craftingCpu()) {
+                actionKey = hovered.accelerated() ? "smart_accelerating" : "smart_accelerate";
+            } else {
+                actionKey = hovered.accelerated() ? "accelerating" : "accelerate";
+            }
+            Component hint = Component.translatable("gui." + Torcherinoaemod.MOD_ID + ".ae_accelerator." + actionKey);
             Component rightHint = Component.translatable("gui." + Torcherinoaemod.MOD_ID + ".ae_accelerator.right_hint");
             return new Tooltip(java.util.List.of(hovered.name(), hint, rightHint));
         }

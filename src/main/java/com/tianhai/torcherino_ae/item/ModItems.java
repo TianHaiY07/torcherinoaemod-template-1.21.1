@@ -18,4 +18,8 @@ public class ModItems {
     // AE 加速器方块的物品形态。
     public static final DeferredItem<BlockItem> AE_ACCELERATOR = ITEMS.register("ae_accelerator",
             () -> new BlockItem(ModBlocks.AE_ACCELERATOR.get(), new Item.Properties()));
+
+    // 加速器配置卡：绑定加速器及网络内的加速目标设备，放入加速器后自动启用加速。
+    public static final DeferredItem<AcceleratorConfigCardItem> ACCELERATOR_CONFIG_CARD = ITEMS.register("accelerator_config_card",
+            () -> new AcceleratorConfigCardItem(new Item.Properties()));
 }

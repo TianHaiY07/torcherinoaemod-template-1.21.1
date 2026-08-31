@@ -11,7 +11,7 @@
   },
   "background": {
     "texture": "torcherino_ae_mod:textures/gui/ae_accelerator_gui.png",
-    "srcRect": [0, 0, 176, 186]
+    "srcRect": [0, 0, 196, 186]
   },
   "images": {
     "deviceListBg": {
@@ -33,6 +33,10 @@
       "left": 8,
       "top": 160,
       "grid": "HORIZONTAL"
+    },
+    "ae_accelerator_config_card": {
+      "left": 175,
+      "top": 6
     }
   },
   "widgets": {
@@ -54,8 +58,8 @@
       "height": 70
     },
     "upgrades": {
-      "right": 2,
-      "top": 0
+      "right": 22,
+      "top": 30
     },
     "deviceConfigPopup": {
       "left": -13,

@@ -1,6 +1,7 @@
 {
   "block.torcherino_ae_mod.ae_accelerator": "AE加速器",
   "item.torcherino_ae_mod.ae_accelerator": "AE加速器",
+  "item.torcherino_ae_mod.accelerator_config_card": "加速器配置卡",
   "itemGroup.torcherino_ae_mod": "加速增强",
   "gui.torcherino_ae_mod.ae_accelerator": "AE加速器",
   "gui.torcherino_ae_mod.ae_accelerator.working": "工作中",
@@ -13,5 +14,19 @@
   "gui.torcherino_ae_mod.ae_accelerator.right_hint": "右键调整加速倍数",
   "gui.torcherino_ae_mod.ae_accelerator.popup_hint": "加速倍数：%sx（最高 %sx）",
   "gui.torcherino_ae_mod.ae_accelerator.accel_hint": "点击上方设备开始加速",
-  "gui.torcherino_ae_mod.ae_accelerator.accel_status": "加速 %s 台设备 · 最高 %sx"
+  "gui.torcherino_ae_mod.ae_accelerator.accel_status": "加速 %s 台设备 · 最高 %sx",
+  "gui.torcherino_ae_mod.ae_accelerator.crafting_cpu": "合成 CPU",
+  "gui.torcherino_ae_mod.ae_accelerator.smart_accelerate": "左键开启智能加速",
+  "gui.torcherino_ae_mod.ae_accelerator.smart_accelerating": "左键关闭智能加速",
+  "item.torcherino_ae_mod.accelerator_config_card.bound_target": "绑定加速器：（%s，%s，%s）",
+  "item.torcherino_ae_mod.accelerator_config_card.no_target": "未绑定加速器",
+  "item.torcherino_ae_mod.accelerator_config_card.bound_devices": "已绑定设备：%s",
+  "item.torcherino_ae_mod.accelerator_config_card.no_devices": "未绑定设备",
+  "item.torcherino_ae_mod.accelerator_config_card.tooltip": "Shift+右键加速器进行绑定；右键设备绑定/取消；放入加速器后自动加速卡上设备",
+  "item.torcherino_ae_mod.accelerator_config_card.bind_success": "已绑定加速器：（%s，%s，%s）",
+  "item.torcherino_ae_mod.accelerator_config_card.unbind_success": "已取消绑定加速器",
+  "item.torcherino_ae_mod.accelerator_config_card.bind_device_success": "设备已绑定",
+  "item.torcherino_ae_mod.accelerator_config_card.unbind_device_success": "设备已取消绑定",
+  "item.torcherino_ae_mod.accelerator_config_card.bind_device_fail": "设备列表已满",
+  "item.torcherino_ae_mod.accelerator_config_card.not_bound_hint": "请先 Shift+右键 AE 加速器进行绑定"
 }

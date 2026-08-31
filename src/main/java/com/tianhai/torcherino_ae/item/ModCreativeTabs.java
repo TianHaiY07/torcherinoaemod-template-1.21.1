@@ -24,6 +24,7 @@ public class ModCreativeTabs {
                     .icon(() -> new ItemStack(ModItems.AE_ACCELERATOR.get()))
                     .displayItems((parameters, output) -> {
                         output.accept(ModItems.AE_ACCELERATOR.get());
+                        output.accept(ModItems.ACCELERATOR_CONFIG_CARD.get());
                     })
                     .build());
 }

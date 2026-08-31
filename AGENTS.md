@@ -5,7 +5,7 @@
 ## 0. 模组定位
 
 - 这是一个 **Applied Energistics 2（AE2）附属模组**：添加一台「AE加速器」（AE Accelerator）方块机器。
-- 玩法：将 AE2 的「速度升级卡」插入加速器，加速器接入 AE 网络后，可在其 GUI 中勾选网络内的 AE2 机器进行加速（每台设备可独立调节加速倍数）。
+- 玩法：将 AE2 的「速度升级卡」插入加速器，加速器接入 AE 网络后，可在其 GUI 中勾选网络内的 AE2 机器进行加速（每台设备可独立调节加速倍数）；GUI 还会列出网络的合成 CPU，选中后可开启「智能加速」，在 CPU 合成期间联动加速参与合成的机器。
 - 因此 **AE2 是强制运行时依赖**（通过 Modrinth Maven 引入，dev 环境亦需存在），并在 `neoforge.mods.toml` 模板中声明 `ae2`、`guideme` 两个 required 依赖。
 
 ## 1. 语言要求
@@ -70,6 +70,7 @@
   - 常量：`UPGRADE_SLOTS = 4`；**`BASE_ACCEL_MULTIPLIER = 100`（当前仅用于测试，正式发布前必须改回 4）**；`ACCEL_PER_SPEED_CARD = 2`；`POWER_PER_TICK = 1.0`；每台被加速设备额外 `0.5 AE/t`。
   - `commonTick()`：**客户端直接 return**（客户端 `getGrid()` 恒为 null，若走到下方逻辑会把同步来的 working 覆盖回 false，导致模型卡在「未工作」变体）；服务端判断 `getMainNode().isActive()` → 提能量 → `setWorking(...)` → 调用 `runAccelerationPulse`。工作逻辑已合并为单段（每 20 tick 的诊断日志只是叠加观察，不再复制一份逻辑）。
   - **加速原理**（`runAccelerationPulse`）：遍历网格节点，过滤出「激活 + 实现 `IGridTickable` + 属于可加速机器 + 已被玩家选中」的设备，先 `ITickManager.alertDevice(node)` 催促，再在单个游戏 tick 内额外多次调用 `tickable.tickingRequest(node, 1)`（次数 = 设备独立倍数 - 1），使设备内部工作进度成倍推进。
+  - 目标缓存：`cachedTargets`（被选中设备）与 `cachedCpuTargets`（智能联动目标）两个 `List<AccelTarget>`，由 `rebuildTargetCache` 周期性（`CACHE_REBUILD_INTERVAL = 20` tick + 选中集合变化/节点失效时）重建，避免每 tick 全网格扫描。
   - **设备筛选与坐标解析已抽取到 `common/AE2GridSupport.java`（见 4.8）**：`isAcceleratableNode` 等谓词供加速脉冲与菜单列表采集两处复用，避免重复实现；黑名单（`StorageBusPart`、`P2PTunnelPart`、`EnergyCellBlockEntity` 等基础设施）集中管理。
   - **每设备独立加速倍数**：设备身份用**稳定字符串标识**（`AE2GridSupport.deviceIdOf`：方块实体用坐标，部件用「坐标|朝向」，从而区分同一坐标上的多个部件）：`deviceMultipliers`（`Map<String, Integer>`）+ `acceleratedDevices`（`Set<String>`），随 NBT 持久化（`saveAdditional`/`loadTag` 用 `ListTag<String>`，兼容旧 `long[]` 坐标存档，重启保留）；`getDeviceMultiplier` 默认返回最高倍数，`setDeviceMultiplier`（≤1 视为取消加速）/`toggleAcceleratedDevice` 由菜单服务端动作处理器调用。
   - 状态同步：`online` 由 `onMainNodeStateChanged` 权威更新（`getMainNode().getGrid() != null && isOnline()`，避免在 commonTick 里算导致 UI 恒显示未连接）；`working` 由 `commonTick` 更新；两者经 `writeToStream`/`readFromStream` 同步客户端并 `markForUpdate` 驱动模型切换。
@@ -82,10 +83,10 @@
   - `TYPE` 用 `MenuTypeBuilder.create(...).buildUnregistered(...)` 创建（仅创建不注册），再放入注册表。
   - 构造器：`setupUpgrades(host.getUpgrades())` + `createPlayerInventorySlots(playerInventory)`；注册两个客户端动作：`toggle_acceleration`（`DeviceTarget` 载荷）、`set_accel_multiplier`（`MultiplierTarget` 载荷，坐标+倍数）。
   - `@GuiSync(1) public DeviceList devices`：服务端采集的网格设备列表，经网络包同步到客户端。
-  - `collectDevices(host)`（静态，可复用）：遍历网格节点，用 `IdentityHashMap` 按宿主对象去重（同宿主导出多节点时优先保留活动节点），过滤「实现 `IGridTickable` + 可加速机器 + 非自身」，**再按设备标识去重**（设备标识含部件朝向，因此同一坐标上的多个部件会被保留为不同设备），转成 `DeviceEntry`（图标 = 方块/部件的 ItemStack，部件坐标取所在线缆），排序：先名称再距离。
+  - `collectDevices(host)`（静态，可复用）：遍历网格节点，用 `IdentityHashMap` 按宿主对象去重（同宿主导出多节点时优先保留活动节点），过滤「实现 `IGridTickable` + 可加速机器 + 非自身」，**再按设备标识去重**（设备标识含部件朝向，因此同一坐标上的多个部件会被保留为不同设备），转成 `DeviceEntry`（图标 = 方块/部件的 ItemStack，部件坐标取所在线缆）；随后经 `collectCpus` 追加网格中的合成 CPU 条目（见 4.9），再排序：先名称再距离。
   - `broadcastChanges()`：服务端每 20 tick 重新采集一次设备列表（节流）。
   - `DeviceTarget` / `MultiplierTarget` 用**带无参构造器的普通类**而非 record，保证 GSON 可靠序列化/反序列化。
-- `menu/DeviceList.java` / `menu/DeviceEntry.java`：纯数据载体 record，实现 `PacketWritable`，手写 `writeToPacket` / 包读取构造器（Component 用 `ComponentSerialization.TRUSTED_STREAM_CODEC`，ItemStack 用 `OPTIONAL_STREAM_CODEC`）。
+- `menu/DeviceList.java` / `menu/DeviceEntry.java`：纯数据载体 record，实现 `PacketWritable`，手写 `writeToPacket` / 包读取构造器（Component 用 `ComponentSerialization.TRUSTED_STREAM_CODEC`，ItemStack 用 `OPTIONAL_STREAM_CODEC`）。`DeviceEntry` 含 `craftingCpu` 字段（boolean）区分普通设备与合成 CPU。客户端 `DeviceListWidget` 对 CPU 行用「智能加速」tooltip 文案（`smart_accelerate`/`smart_accelerating`）。
 
 ### 4.5 客户端界面
 
@@ -127,6 +128,13 @@
   - `resolveDevicePos(Object)`：解析宿主坐标（方块实体用自身坐标，部件用所在线缆/宿主坐标）。
   - `deviceIdOf(Object)`：生成稳定、可持久化的设备标识（方块实体用坐标，部件用「坐标|朝向」），作为选中设备集合与倍数表的身份键，也是 GUI 点击载荷的设备身份。
   - `isAcceleratableNode(IGridNode, self)`：判断节点是否为可加速设备——注册了 `IGridTickable` 服务、宿主非空非自身、属于可加速机器、能解析出坐标。**不判断 `isActive()`**（菜单需展示非活动设备，仅加速脉冲要求激活，由调用方叠加）。
+  - **合成 CPU 辅助**：`cpuDeviceId(ICraftingCPU)` 用带 `cpu:` 前缀的结构 min 坐标生成稳定设备标识（与普通坐标标识互不冲突）；`isCpuDeviceId(String)` / `asCpuCluster(ICraftingCPU)` 解析 CPU；`isCraftingMachineType(Object)` 判断宿主是否为合成执行机器——三级判定：①实现 `ICraftingMachine` 的方块（分子装配室及第三方直接实现者）；②向世界注册 `AECapabilities.CRAFTING_MACHINE` 能力的方块（第三方 AE 附属通常这样接入）；③兜底登记在 `CRAFTING_MACHINE_TYPES` 的压印机 / 充能器。
+  - **合成相关机器判定**：智能加速的目标集合由两类组成——①节点注册了 `ICraftingProvider` 服务的 pattern provider（接口、样板供应器）；②`isCraftingMachineType` 的合成执行机器。两者都由 `AEAcceleratorBlockEntity.isCraftingRelated` 统一判定并缓存进 `cachedCpuTargets`。
+
+## 4.9 智能加速（合成 CPU）
+
+- 加速器 GUI 设备列表除普通 `IGridTickable` 机器外，还会采集**合成 CPU（Crafting CPU）**：经 `ICraftingService.getCpus()` 枚举，图标用 `AEBlocks.CRAFTING_UNIT`，名称用 CPU 自定义名或默认文案，`DeviceEntry.craftingCpu = true` 区分。
+- 合成 CPU 不属于 `IGridTickable`，**本身不能被直接加速**；玩家选中它（左键/右键设倍数）即开启「智能加速」。当被选中的 CPU 处于合成状态（`isBusy()`）时，加速器会**联动加速当前参与合成的机器**：`getSmartCpuMultiplier` 取选中且 busy 的 CPU 最高倍率；`cachedCpuTargets` 缓存「合成相关机器」（`ICraftingProvider` 服务的接口/样板供应器，或 `isCraftingMachineType` 的合成执行机器——实现 `ICraftingMachine` 的分子装配室等 + 压印机/充能器），逐台按该倍率脉冲（运行时以 sleep 判断兜底，空闲机器不空转）。
 
 ## 5. 已知注意事项 / 待办
 

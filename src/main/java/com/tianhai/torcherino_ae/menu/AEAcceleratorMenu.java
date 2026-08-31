@@ -12,9 +12,15 @@ import com.tianhai.torcherino_ae.blockentity.AEAcceleratorBlockEntity;
 import com.tianhai.torcherino_ae.common.AE2GridSupport;
 import appeng.api.networking.IGrid;
 import appeng.api.networking.IGridNode;
+import appeng.api.networking.crafting.ICraftingCPU;
+import appeng.core.definitions.AEBlocks;
 import appeng.menu.AEBaseMenu;
+import appeng.menu.SlotSemantic;
+import appeng.menu.SlotSemantics;
 import appeng.menu.guisync.GuiSync;
 import appeng.menu.implementations.MenuTypeBuilder;
+import appeng.menu.slot.AppEngSlot;
+import appeng.me.cluster.implementations.CraftingCPUCluster;
 import appeng.parts.AEBasePart;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
@@ -44,6 +50,9 @@ public class AEAcceleratorMenu extends AEBaseMenu {
             .create(AEAcceleratorMenu::new, AEAcceleratorBlockEntity.class)
             .buildUnregistered(ResourceLocation.fromNamespaceAndPath(Torcherinoaemod.MOD_ID, "ae_accelerator"));
 
+    // 配置卡槽位的自定义插槽语义：用于在界面样式 JSON 的 slots 段中按 id 定位到固定坐标。
+    public static final SlotSemantic AE_CONFIG_CARD_SLOT = SlotSemantics.register("ae_accelerator_config_card", false);
+
     // 客户端「切换设备加速状态」动作名。
     private static final String ACTION_TOGGLE_ACCELERATION = "toggle_acceleration";
 
@@ -66,6 +75,10 @@ public class AEAcceleratorMenu extends AEBaseMenu {
 
         // 复用 AE 的升级卡插槽创建逻辑（RestrictedInputSlot + UPGRADE 语义），自主添加升级卡插槽。
         setupUpgrades(host.getUpgrades());
+
+        // 配置卡槽位：单格，仅允许放入「加速器配置卡」（库存侧已用过滤器限定）。
+        // 位置由界面样式 JSON 的 slots.ae_accelerator_config_card 驱动（x:174, y:5）。
+        addSlot(new AppEngSlot(host.getConfigCardInventory(), 0), AE_CONFIG_CARD_SLOT);
 
         // 创建玩家物品栏（主物品栏 + 快捷栏）槽位，便于玩家将升级卡拖入/取出。
         createPlayerInventorySlots(playerInventory);
@@ -161,6 +174,8 @@ public class AEAcceleratorMenu extends AEBaseMenu {
             }
         }
         List<DeviceEntry> entries = new ArrayList<>(devicesById.values());
+        // 追加网络中的合成 CPU（Crafting CPU）条目：CPU 不属于 IGridTickable，需单独采集。
+        entries.addAll(collectCpus(host, origin));
 
         // 排序：先按名称，再按与加速器的欧氏距离平方，保证列表顺序稳定（避免无意义重发）。
         entries.sort(Comparator
@@ -168,6 +183,50 @@ public class AEAcceleratorMenu extends AEBaseMenu {
                 .thenComparingDouble(d -> d.pos().distSqr(origin)));
 
         return new DeviceList(entries);
+    }
+
+    /**
+     * 采集网络中的合成 CPU（Crafting CPU）列表。
+     * <p>
+     * 合成 CPU 是多块巨型结构，AE2 通过 {@link appeng.api.networking.crafting.ICraftingService#getCpus()}
+     * 暴露它们。它们不属于 {@code IGridTickable}，不会被普通设备采集逻辑纳入；但对玩家而言
+     * 它们是重要的合成枢纽，需要展示在加速器界面中，并支持「智能加速」：选中 CPU 后，
+     * 当该 CPU 处于合成状态（busy）时，加速器会自动联动加速当前参与合成的机器。
+     * <p>
+     * 每个 CPU 用带 {@code cpu:} 前缀的结构坐标作为设备标识（见
+     * {@link AE2GridSupport#cpuDeviceId}），与普通设备标识互不冲突。
+     */
+    private static List<DeviceEntry> collectCpus(AEAcceleratorBlockEntity host, BlockPos origin) {
+        IGrid grid = host.getMainNode().getGrid();
+        if (grid == null) {
+            return List.of();
+        }
+        List<DeviceEntry> result = new ArrayList<>();
+        for (ICraftingCPU cpu : grid.getCraftingService().getCpus()) {
+            DeviceEntry entry = toCpuEntry(cpu, host);
+            if (entry != null) {
+                result.add(entry);
+            }
+        }
+        return result;
+    }
+
+    /**
+     * 将一台合成 CPU 转成设备条目；无法解析出结构坐标（强转失败）时返回 {@code null}。
+     */
+    private static DeviceEntry toCpuEntry(ICraftingCPU cpu, AEAcceleratorBlockEntity host) {
+        String id = AE2GridSupport.cpuDeviceId(cpu);
+        CraftingCPUCluster cluster = AE2GridSupport.asCpuCluster(cpu);
+        if (id == null || cluster == null) {
+            return null;
+        }
+        BlockPos pos = cluster.getBoundsMin();
+        // CPU 名称：用户自定义名优先，未命名时用通用占位文案。
+        Component name = cpu.getName() != null ? cpu.getName() : Component.translatable(
+                "gui." + Torcherinoaemod.MOD_ID + ".ae_accelerator.crafting_cpu");
+        boolean active = cluster.isActive();
+        return new DeviceEntry(id, name, pos, active, host.isAccelerating(id), host.getDeviceMultiplier(id),
+                AEBlocks.CRAFTING_UNIT.stack(), true);
     }
 
     /**
