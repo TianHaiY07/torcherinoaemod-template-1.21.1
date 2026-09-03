@@ -1,4 +1,6 @@
-package com.tianhai.torcherino_ae.menu;
+package com.tianhai.torcherino_ae.client.widget;
+import com.tianhai.torcherino_ae.menu.AEAcceleratorMenu;
+import com.tianhai.torcherino_ae.menu.DeviceEntry;
 
 import java.util.List;
 import java.util.function.Consumer;
@@ -99,11 +101,11 @@ public class DeviceConfigPopup implements ICompositeWidget {
     }
 
     /**
-     * 当前可调的最大加速倍数（受速度升级卡数量影响，来自方块实体）。
+     * 当前可调的最大加速倍数：取菜单经 {@code @GuiSync} 同步的实时值
+     * （服务端按已插入升级卡复合累乘计算），避免依赖客户端方块实体副本。
      */
     private int getMaxMultiplier() {
-        var host = menu.getHost();
-        return Math.max(1, host != null ? host.getAccelMultiplier() : 1);
+        return Math.max(1, menu.getMaxMultiplier());
     }
 
     /**

@@ -3,8 +3,10 @@ package com.tianhai.torcherino_ae;
 import com.tianhai.torcherino_ae.blockentity.ModBlockEntities;
 import com.tianhai.torcherino_ae.client.ModScreens;
 import com.tianhai.torcherino_ae.client.render.AEAcceleratorRenderer;
+import com.tianhai.torcherino_ae.client.screen.AEAcceleratorScreen;
+import com.tianhai.torcherino_ae.client.screen.AETorcherinoScreen;
 import com.tianhai.torcherino_ae.menu.AEAcceleratorMenu;
-import com.tianhai.torcherino_ae.menu.AEAcceleratorScreen;
+import com.tianhai.torcherino_ae.menu.AETorcherinoMenu;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.player.Inventory;
 import net.neoforged.api.distmarker.Dist;
@@ -15,7 +17,7 @@ import net.neoforged.neoforge.client.event.RegisterMenuScreensEvent;
 import net.neoforged.bus.api.SubscribeEvent;
 
 /**
- * 客户端初始化：注册 AE 加速器方块界面的菜单屏幕，以及「接电发光 + 炫彩流光」方块实体渲染器。
+ * 客户端初始化：注册 AE 加速器/加速火把方块的界面屏幕，以及「接电发光 + 炫彩流光」方块实体渲染器。
  */
 @EventBusSubscriber(modid = Torcherinoaemod.MOD_ID, value = Dist.CLIENT)
 public class TorcherinoaemodClient {
@@ -29,6 +31,13 @@ public class TorcherinoaemodClient {
                 (AEAcceleratorMenu menu, Inventory playerInventory, Component title) -> new AEAcceleratorScreen(
                         menu, playerInventory, title,
                         ModScreens.loadStyleDoc("/screens/ae_accelerator.json")));
+
+        // AE 加速火把界面：背景由 AE2 内部 guis/background.png 九宫格平铺生成，
+        // 滑块视觉复用 device_entry_gui.png 的轨道槽与手柄素材。
+        event.register(AETorcherinoMenu.TYPE,
+                (AETorcherinoMenu menu, Inventory playerInventory, Component title) -> new AETorcherinoScreen(
+                        menu, playerInventory, title,
+                        ModScreens.loadStyleDoc("/screens/ae_torcherino.json")));
     }
 
     @SubscribeEvent

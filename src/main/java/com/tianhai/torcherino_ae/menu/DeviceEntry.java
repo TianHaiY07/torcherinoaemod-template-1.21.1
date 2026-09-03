@@ -18,9 +18,9 @@ import appeng.menu.guisync.PacketWritable;
  * 每台设备拥有独立的倍数，由服务端 {@link AEAcceleratorBlockEntity#getDeviceMultiplier} 提供。
  * <p>
  * 设备身份：{@code id} 是服务端生成的稳定标识——普通设备用坐标或「坐标|朝向」（见
- * {@link com.tianhai.torcherino_ae.common.AE2GridSupport#deviceIdOf}），
+ * {@link com.tianhai.torcherino_ae.network.DeviceScanner#deviceIdOf}），
  * 合成 CPU 用带 {@code cpu:} 前缀的结构坐标（见
- * {@link com.tianhai.torcherino_ae.common.AE2GridSupport#cpuDeviceId}），
+ * {@link com.tianhai.torcherino_ae.network.crafting.CraftingSupport#cpuDeviceId}），
  * 两者互不冲突，统一作为点击/倍数的身份键；{@code pos} 仅用于界面展示坐标、排序与搜索。
  * <p>
  * {@code craftingCpu} 为 {@code true} 表示这是「合成 CPU」。合成 CPU 不属于

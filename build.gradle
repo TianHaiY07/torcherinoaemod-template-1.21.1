@@ -144,6 +144,12 @@ tasks.named('test', Test) {
     useJUnitPlatform()
 }
 
+// 让测试源码集获得与 main 相同的 Minecraft/NeoForge 类路径（ModDevGradle 默认只注入 main）。
+// 纯逻辑单测（倍率/能耗/预算/设备身份等）直接引用 net.minecraft 的值类型类（BlockPos、
+// ResourceLocation、NbtOps 等），编译与运行都需要这份类路径。
+sourceSets.test.compileClasspath += sourceSets.main.compileClasspath
+sourceSets.test.runtimeClasspath += sourceSets.main.runtimeClasspath
+
 // This block of code expands all declared replace properties in the specified resource targets.
 // A missing property will result in an error. Properties are expanded using ${} Groovy notation.
 var generateModMetadata = tasks.register("generateModMetadata", ProcessResources) {

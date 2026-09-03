@@ -1,11 +1,11 @@
 package com.tianhai.torcherino_ae.blockentity;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
+
+import org.jetbrains.annotations.Nullable;
 
 import appeng.api.config.Actionable;
 import appeng.api.config.PowerMultiplier;
@@ -17,33 +17,36 @@ import appeng.api.networking.crafting.ICraftingCPU;
 import appeng.api.networking.crafting.ICraftingProvider;
 import appeng.api.networking.energy.IEnergyService;
 import appeng.api.networking.ticking.IGridTickable;
-import appeng.api.networking.ticking.ITickManager;
-import appeng.api.networking.ticking.TickRateModulation;
 import appeng.api.upgrades.IUpgradeInventory;
 import appeng.api.upgrades.IUpgradeableObject;
 import appeng.api.upgrades.UpgradeInventories;
 import appeng.blockentity.CommonTickingBlockEntity;
 import appeng.blockentity.grid.AENetworkedPoweredBlockEntity;
-import appeng.core.definitions.AEItems;
 import appeng.util.inv.AppEngInternalInventory;
-import appeng.util.inv.filter.IAEItemFilter;
-import com.tianhai.torcherino_ae.Torcherinoaemod;
+import com.tianhai.torcherino_ae.api.AccelerationResult;
+import com.tianhai.torcherino_ae.api.AccelerationTarget;
+import com.tianhai.torcherino_ae.api.AccelSource;
+import com.tianhai.torcherino_ae.api.BudgetMeter;
+import com.tianhai.torcherino_ae.api.DeviceId;
+import com.tianhai.torcherino_ae.api.IAccelerationSource;
 import com.tianhai.torcherino_ae.block.ModBlocks;
-import com.tianhai.torcherino_ae.common.AE2GridSupport;
-import com.tianhai.torcherino_ae.item.AcceleratorConfigCardItem;
+import com.tianhai.torcherino_ae.config.RuntimeConfig;
+import com.tianhai.torcherino_ae.network.DeviceScanner;
+import com.tianhai.torcherino_ae.network.crafting.CraftingSupport;
+import com.tianhai.torcherino_ae.core.AccelerationEngine;
+import com.tianhai.torcherino_ae.core.MultiplierCalculator;
+import com.tianhai.torcherino_ae.core.PowerModel;
+import com.tianhai.torcherino_ae.core.TargetCache;
+import com.tianhai.torcherino_ae.core.TargetRegistry;
 import com.tianhai.torcherino_ae.item.ModItems;
+import com.tianhai.torcherino_ae.util.DebugLog;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
-import net.minecraft.nbt.ListTag;
-import net.minecraft.nbt.StringTag;
-import net.minecraft.nbt.Tag;
 import net.minecraft.network.RegistryFriendlyByteBuf;
-import net.minecraft.world.entity.player.Inventory;
-import net.minecraft.world.entity.player.Player;
-import net.minecraft.world.item.ItemStack;
+import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.level.Level;
-import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockState;
 
@@ -54,45 +57,30 @@ import net.minecraft.world.level.block.state.BlockState;
  * 实现 {@link IUpgradeableObject} 以支持升级卡插槽，实现 {@link CommonTickingBlockEntity} 以做周期性工作。
  * 只有当方块接入并激活 AE 网络、且能从网络提取到足够能量时才会工作。
  * <p>
- * 加速功能：玩家在 GUI 中点击设备列表选中目标后，本方块实体会在每个游戏 tick 对选中的
- * 设备执行一次加速——先通过 {@link ITickManager#alertDevice} 催促其网格 tick，
- * 再在单个游戏 tick 内多次调用其 {@link IGridTickable#tickingRequest}，使设备内部工作
- * 进度成倍推进。未安装升级卡时最高加速 4x，每张速度升级卡额外 +2x。
+ * P1/P2 重构后本类退化为<b>协调者</b>（原 ~880 行 God 类已拆分）：
+ * <ul>
+ *   <li><b>加速领域逻辑</b>（脉冲、倍率、能耗、目标缓存、登记表）→ {@code core} 包
+ *       （{@link AccelerationEngine} / {@link MultiplierCalculator} / {@link PowerModel} /
+ *       {@link TargetCache} / {@link TargetRegistry}），本类实现 {@link IAccelerationSource}
+ *       只回答「加速谁、每台多少倍、现在能不能工作」；</li>
+ *   <li><b>配置卡绑定协调</b>（库存、注入/撤销、移除清理、持久化）→ {@link ConfigCardBinding}；</li>
+ *   <li><b>本类保留</b>：AE 网络生命周期（节点事件 / 供能 / 库存回调等必须 override 的钩子）、
+ *       online/working 状态同步（经 writeToStream/readFromStream 驱动模型）与网络诊断。</li>
+ * </ul>
+ * 未安装升级卡时最高加速 4x（基础倍率与各档系数均可由配置调整，默认等同现网数值）；
+ * 每插入一张升级卡（I=×2、II=×4、III=×8）会以复合累乘的方式放大基础倍数：
+ * 4 × 2^I × 4^II × 8^III（公式见 {@link MultiplierCalculator}）。
  * 只有注册了网格 tick 服务（{@link IGridTickable}）且处于激活状态的 AE 设备才能被加速。
  */
 public class AEAcceleratorBlockEntity extends AENetworkedPoweredBlockEntity
-        implements IUpgradeableObject, CommonTickingBlockEntity {
+        implements IUpgradeableObject, CommonTickingBlockEntity, IAccelerationSource {
 
-    // 升级卡插槽数量（速度升级卡等）。
+    // 升级卡插槽数量。
     public static final int UPGRADE_SLOTS = 4;
 
-    // 基础加速倍数：未安装任何升级卡时的最高加速倍数。
-    // 注意：当前为 100x，仅用于测试；正式发布前应改回 4x。
-    public static final int BASE_ACCEL_MULTIPLIER = 100;
-
-    // 每张速度升级卡额外增加的加速倍数。
-    public static final int ACCEL_PER_SPEED_CARD = 2;
-
-    // 每 tick 需要消耗的 AE 能量基础值。
-    private static final double POWER_PER_TICK = 1.0;
-
-    // 每张速度升级卡额外增加的能耗（基础 1.0 之上）。
-    private static final double POWER_PER_SPEED_CARD = 0.5;
-
-    // 每台被选中加速的设备额外消耗的 AE 能量。
-    private static final double POWER_PER_ACCELERATED_DEVICE = 0.5;
-
-    // 能量判定缓冲：提取量达到需求的这个比例即认为足够工作，避免因浮点误差来回抖动。
-    private static final double POWER_BUFFER_FRACTION = 0.9;
-
-    // NBT 存储键名：配置卡放入的槽位库存。
-    private static final String TAG_CONFIG_CARD = "config_card_inventory";
-
-    // NBT 存储键名：被选中进行加速的设备标识。
-    private static final String TAG_ACCELERATED_DEVICES = "accelerated_devices";
-
-    // NBT 存储键名：每台被加速设备独立的加速倍数（与 accelerated_devices 一一对应）。
-    private static final String TAG_DEVICE_MULTIPLIERS = "device_multipliers";
+    // 基础加速倍数（默认值，供菜单等无实例场景作占位基准；实际生效值由 RuntimeConfig 提供，
+    // 与 MultiplierCalculator / ConfigDefaults 保持同一事实来源）。
+    public static final int BASE_ACCEL_MULTIPLIER = MultiplierCalculator.DEFAULT_BASE;
 
     // 用于供 GUI 显示的「是否已接入网络」状态（连接状态，供视觉显示，使用 isOnline 计算）。
     private boolean online;
@@ -103,71 +91,41 @@ public class AEAcceleratorBlockEntity extends AENetworkedPoweredBlockEntity
     // 升级卡库存。
     private final IUpgradeInventory upgrades;
 
-    // 配置卡库存：单格，仅允许放入「加速器配置卡」，用于后续存放配置方案（占位实现）。
-    private final AppEngInternalInventory configCardInventory;
+    // 配置卡绑定协调（库存 + 注入/撤销 + 移除清理 + 持久化）。
+    private final ConfigCardBinding configCardBinding;
 
-    // 被选中进行加速的设备标识集合（服务端权威，随 NBT 持久化，重启后保留）。
-    // 设备标识由 AE2GridSupport.deviceIdOf 生成：方块实体用坐标，部件用「坐标|朝向」，
-    // 因此同一坐标上的多个可加速部件也能被各自独立选中、互不串扰。
-    private final Set<String> acceleratedDevices = new HashSet<>();
+    // 加速目标登记表：谁被加速、每台多少倍、由谁设置（玩家 / 配置卡），随 NBT 持久化。
+    // 取代重构前的 acceleratedDevices + deviceMultipliers + configCardDevices 三份状态。
+    // 可见性为包内默认：同包协作类 ConfigCardBinding 需要做卡来源的注入/撤销。
+    final TargetRegistry targetRegistry = new TargetRegistry();
 
-    // 每台被加速设备独立的加速倍数（服务端权威，随 NBT 持久化，重启后保留）。
-    // 键 = 设备标识，值 = 该设备的加速倍数；未加速设备不在表中（默认按 1 处理）。
-    private final Map<String, Integer> deviceMultipliers = new HashMap<>();
+    // 目标缓存：周期性 / 置脏时重建，避免每个 tick 全网格扫描。
+    // 重建间隔取配置 cache.rebuildIntervalTicks 的当前值（方块每次创建/重开区块读取，默认 20 tick）。
+    private final TargetCache targetCache = new TargetCache(RuntimeConfig.cacheRebuildIntervalTicks());
 
-    // 由配置卡自动注入的设备标识集合（仅服务端内存态，不持久化——卡在则注入、卡走则撤销）。
-    // 与 acceleratedDevices 中的「玩家手动勾选」区分维护：卡被取出/更换时只撤销卡注入的
-    // 设备，不打断玩家通过 GUI 手动勾选的设备；卡放入后按卡片记录重新注入。
-    private final Set<String> configCardDevices = new HashSet<>();
+    // 智能联动目标标识集：rebuildTargets 时收集「未被登记、但属于合成相关机器」的设备，
+    // multiplierFor 据此把这类目标按当前智能加速倍率放行。仅在缓存重建期间修改。
+    private final Set<DeviceId> craftingLinkedIds = new HashSet<>();
+
+    // 智能加速倍率缓存：每个游戏 tick 至多计算一次（扫描被选中且正在合成的 CPU）。
+    private long smartCheckTick = -1;
+    private int smartCpuMultiplier;
+
+    // 单 tick 调用预算计量器：预算值由配置 budget.tickCallsPerSource 决定，变化时重建。
+    private BudgetMeter budgetMeter = BudgetMeter.UNLIMITED_METER;
+    private int budgetLimitTicks = BudgetMeter.UNLIMITED;
 
     // 网络诊断计数器：每累计 20 tick（即 1 秒）输出一次完整连接状态，
     // 便于实时判断加速器是否真正连接上 AE 网络（排查「UI 显示未连接」问题）。
     private int diagnosticTimer;
-
-    // 加速脉冲诊断计数器：每累计 20 tick（即 1 秒）输出一次设备命中明细。
-    private int pulseDebugTimer;
-
-    // 加速目标缓存：只缓存「当前被选中的可加速节点」，每 tick 仅遍历此缓存而非整张网格，
-    // 避免把 getNodes() 全网格扫描的开销分摊到每一个游戏 tick 上。节点失效/换网时会被剔除。
-    private final List<AccelTarget> cachedTargets = new ArrayList<>();
-
-    // 智能加速缓存：只缓存「合成相关机器」节点（接口/样板供应器等 ICraftingProvider，
-    // 或分子装配室/压印机/充能器等合成执行机器，且未被玩家单独选中）。当有被选中的
-    // 合成 CPU 处于合成状态时，加速器会对这些机器联动加速，运行时以睡眠判断兜底。
-    // 同样避免每 tick 全网格扫描，随 rebuildTargetCache 一起周期性重建。
-    private final List<AccelTarget> cachedCpuTargets = new ArrayList<>();
-
-    // 缓存重建间隔（tick）：每累计该值就重建一次缓存，用于把新增设备纳入、把失效设备剔除。
-    private static final int CACHE_REBUILD_INTERVAL = 20;
-
-    // 缓存重建计时器：累计到 CACHE_REBUILD_INTERVAL 就触发一次重建。
-    private int cacheRebuildTimer;
-
-    // 缓存是否待重建：初始为 true（首个 tick 立即构建），选中集合变化或缓存节点失效时置为 true，
-    // 保证「点击加速」立即生效而不必等待下一个重建周期。
-    private boolean cacheDirty = true;
 
     public AEAcceleratorBlockEntity(BlockEntityType<?> blockEntityType, BlockPos pos, BlockState state) {
         super(blockEntityType, pos, state);
         // 创建绑定到本机的升级卡库存，并在升级卡变化时通知保存。
         this.upgrades = UpgradeInventories.forMachine(ModBlocks.AE_ACCELERATOR.get(), UPGRADE_SLOTS,
                 this::onUpgradesChanged);
-        // 创建单格配置卡库存：仅接受「加速器配置卡」，且其绑定的加速器必须就是本机
-        // （防止异地配置的卡片直接混入；未绑定的卡片同样被拒绝）。
-        this.configCardInventory = new AppEngInternalInventory(this, 1, 1, new IAEItemFilter() {
-            @Override
-            public boolean allowInsert(appeng.api.inventories.InternalInventory inv, int slot, ItemStack stack) {
-                return stack.is(ModItems.ACCELERATOR_CONFIG_CARD.get())
-                        && AcceleratorConfigCardItem.isBoundTo(stack, AEAcceleratorBlockEntity.this.getBlockPos());
-            }
-        });
-    }
-
-    /**
-     * 加速目标缓存条目：在重建时一次性解析好网格节点、设备标识与其网格 tick 服务，
-     * 供加速脉冲每 tick 直接使用，避免重复调用 getService / deviceIdOf 等较重解析。
-     */
-    private record AccelTarget(IGridNode node, String deviceId, IGridTickable tickable) {
+        // 创建配置卡绑定协调（含单格配置卡库存与绑定生命周期逻辑）。
+        this.configCardBinding = new ConfigCardBinding(this);
     }
 
     /**
@@ -189,10 +147,10 @@ public class AEAcceleratorBlockEntity extends AENetworkedPoweredBlockEntity
     }
 
     /**
-     * 配置卡库存：单格，仅允许存放「加速器配置卡」。
+     * 配置卡库存：单格，仅允许存放「绑定本机的加速器配置卡」。
      */
     public AppEngInternalInventory getConfigCardInventory() {
-        return configCardInventory;
+        return configCardBinding.getInventory();
     }
 
     /**
@@ -203,24 +161,107 @@ public class AEAcceleratorBlockEntity extends AENetworkedPoweredBlockEntity
         markForUpdate();
     }
 
+    // ========================= 加速源契约（IAccelerationSource） =========================
+
+    @Override
+    public ResourceKey<Level> dimension() {
+        Level world = level;
+        return world != null ? world.dimension() : Level.OVERWORLD;
+    }
+
+    @Override
+    public BlockPos origin() {
+        return getBlockPos();
+    }
+
+    @Override
+    public int maxMultiplier() {
+        return getAccelMultiplier();
+    }
+
+    @Override
+    public boolean isActive() {
+        // AE2 的 isActive() 在节点不存在或未入网时（isPowered 对无网格节点返回 false 短路）
+        // 安全返回 false，无需先判网格；直接调用即可覆盖全部状态，也不会触发
+        // 「节点未入网时 getGrid() 抛 ISE」的问题（见 grid()）。
+        return getMainNode().isActive();
+    }
+
+    @Override
+    public List<AccelerationTarget> targets() {
+        return targetCache.resolve(this::rebuildTargets);
+    }
+
+    @Override
+    public int multiplierFor(DeviceId id) {
+        // 已登记设备（玩家勾选 / 配置卡注入）：用登记表中该设备的独立倍数。
+        int registered = targetRegistry.multiplierFor(id, -1);
+        if (registered > 1) {
+            return registered;
+        }
+        // 未登记但属于智能联动目标：按当前智能加速倍率放行（受配置 crafting.smartAccelerateEnabled
+        // 控制；关闭时返回 1，引擎因 extraCalls<=0 自动跳过，不产生联动加速）。
+        if (RuntimeConfig.smartAccelerateEnabled() && craftingLinkedIds.contains(id)) {
+            return currentSmartCpuMultiplier();
+        }
+        return 1;
+    }
+
+    @Override
+    public BudgetMeter budget() {
+        // 预算上限由配置 budget.tickCallsPerSource 提供（默认 -1 不限）。
+        // 计器实例被缓存：仅当配置值变化时才重建，避免每个 tick 分配对象。
+        int limit = RuntimeConfig.budgetTickCallsPerSource();
+        if (limit != budgetLimitTicks) {
+            budgetLimitTicks = limit;
+            budgetMeter = new BudgetMeter(limit);
+        }
+        return budgetMeter;
+    }
+
+    /**
+     * 安全读取节点当前所属网格（{@link IAccelerationSource} 契约）。
+     * <p>
+     * AE2 的 {@code GridNode.getGrid()} 在底层节点存在但未入网时抛
+     * {@link IllegalStateException} 而非返回 {@code null}（与
+     * {@link AccelerationTarget#gridOf} 转译语义一致）——本方块实体所有内部逻辑与菜单
+     * 统一经此方法取网格，把「无网格」一律转译为 {@code null}，调用方只需判空。
+     */
+    @Nullable
+    @Override
+    public IGrid grid() {
+        try {
+            return getMainNode().getGrid();
+        } catch (IllegalStateException destroyed) {
+            return null;
+        }
+    }
+
+    @Override
+    public void markTargetsDirty() {
+        targetCache.markDirty();
+    }
+
+    // ========================= 周期性工作 =========================
+
     @Override
     public void commonTick() {
         // 客户端不执行工作逻辑：网络状态判断、能量消耗与加速脉冲都只在服务端进行。
-        // 客户端方块实体的 online/working 完全由服务端经 writeToStream/readFromStream 同步；
-        // 若客户端也走到下方判断（客户端 getGrid() 恒为 null），会把同步来的 working 覆盖回
-        // false，导致方块状态永远停留在「未工作」变体，模型无法切换到 ae_accelerator_inactive。
+        // 客户端方块实体的 online/working 完全由服务端经 writeToStream/readFromStream 同步。
         if (level != null && level.isClientSide()) {
             return;
         }
 
         // 网络是否「已接入」由 AE2 权威事件 onMainNodeStateChanged 驱动更新（见下方实现），
         // 这里不再重复计算 isOnline，以免 getGrid() 在不一致的调用时机返回 null 把 true 覆盖回 false。
-        IGrid grid = getMainNode().getGrid();
+        // 经 grid() 安全取值：节点存活但未入网（孤立摆放 / 断缆瞬间）的窗口内 getGrid() 会抛 ISE，
+        // 统一转译为 null 后按「未接入」处理，避免方块实体每 tick 路径崩溃。
+        IGrid grid = grid();
 
-        // 周期性（每 20 tick，即 1 秒）输出一次网络/工作诊断日志，便于实时定位
+        // 周期性（每 DEFAULT_SAMPLE_INTERVAL tick，即 1 秒）输出一次网络/工作诊断日志，便于实时定位
         // 「未加速 / UI 显示未连接 / 模型未切换」究竟卡在网格、电力还是设备匹配环节。
-        // 诊断日志只是叠加观察（与下方真正的工作分支共用同一套状态判定），不单独跑一份工作逻辑。
-        boolean log = ++diagnosticTimer >= 20;
+        // 开关关闭时（默认）连计数都不推进，每 tick 只剩一次 volatile 布尔读取。
+        boolean log = DebugLog.isEnabled() && ++diagnosticTimer >= RuntimeConfig.debugSampleIntervalTicks();
         if (log) {
             diagnosticTimer = 0;
             logNetworkState(grid);
@@ -236,242 +277,155 @@ public class AEAcceleratorBlockEntity extends AENetworkedPoweredBlockEntity
         // 只有确实有设备在工作时才消耗能量并标记 working；否则（所有选中设备都已空闲）
         // 不提取能量、不标记工作，方块停留在 ae_accelerator_on（接电但空闲）模型，实现节能。
         double needed = getRequiredPowerPerTick();
-        int accelerated = runAccelerationPulse(grid);
+        AccelerationResult result = AccelerationEngine.pulse(this);
 
         boolean isWorking = false;
         double available = 0;
-        if (accelerated > 0) {
-            // 消耗 AE 内部能量：从网格的能量服务按需提取（POWER_BUFFER_FRACTION 为缓冲，避免浮点误差来回抖动）。
+        if (result.didWork()) {
+            // 消耗 AE 内部能量：从网格的能量服务按需提取（powerBufferFraction 为缓冲占比，
+            // 由配置 power.bufferFraction 提供，默认 0.9，避免浮点误差来回抖动）。
+            double bufferFraction = RuntimeConfig.powerBufferFraction();
             available = grid.getEnergyService().extractAEPower(needed, Actionable.MODULATE, PowerMultiplier.ONE);
-            isWorking = available >= needed * POWER_BUFFER_FRACTION;
+            isWorking = available >= needed * bufferFraction;
         }
         setWorking(isWorking);
         if (log) {
-            Torcherinoaemod.LOGGER.info(
-                    "[DBG][工作诊断] {} | needed={} | available={} | isWorking={} | 实际加速设备={} | 加速倍数={} | 选中设备={}",
-                    getBlockPos(), needed, available, isWorking, accelerated, getAccelMultiplier(),
-                    acceleratedDevices);
+            DebugLog.info(
+                    "[诊断][工作] {} | needed={} | available={} | isWorking={} | 实际加速设备={} | 调用次数={} |"
+                            + " 睡眠跳过={} | 未激活跳过={} | 脱离剔除={} | 预算耗尽={} | 最高倍数={} | 登记设备={}",
+                    getBlockPos(), needed, available, isWorking, result.hit(), result.tickCalls(),
+                    result.skippedSleeping(), result.skippedInactive(), result.skippedDetached(),
+                    result.budgetExhausted(), getAccelMultiplier(), targetRegistry.size());
         }
     }
 
+    // ========================= 倍率与能量 =========================
+
     /**
-     * 当前最高加速倍数：基础 4x，每张速度升级卡额外 +2x。
+     * 当前最高加速倍数：基础 4x，随已安装的升级卡以复合累乘方式放大。
      * <p>
-     * 注意：这是「滑块可调的上限」，每台设备实际使用的倍数是独立的，
-     * 由 {@link #getDeviceMultiplier(String)} 返回，可通过界面中的横向滚动条调整。
+     * 公式：{@code BASE_ACCEL_MULTIPLIER × 2^I × 4^II × 8^III}（I/II/III 分别为三种升级卡的数量，
+     * 见 {@link MultiplierCalculator}）。注意：这是「滑块可调的上限」，每台设备实际使用的倍数是
+     * 独立的，由 {@link #getDeviceMultiplier(DeviceId)} 返回，可通过界面中的横向滚动条调整。
      */
     public int getAccelMultiplier() {
-        int speedCards = getInstalledUpgrades(AEItems.SPEED_CARD.get());
-        return BASE_ACCEL_MULTIPLIER + speedCards * ACCEL_PER_SPEED_CARD;
+        // 基础倍率与三档系数从配置读取（RuntimeConfig 快照），默认即现网数值。
+        int result = MultiplierCalculator.compute(
+                RuntimeConfig.accelBaseMultiplier(),
+                RuntimeConfig.accelCardFactor(0), RuntimeConfig.accelCardFactor(1),
+                RuntimeConfig.accelCardFactor(2),
+                upgrades.getInstalledUpgrades(ModItems.ACCELERATOR_UPGRADE_CARD_I.get()),
+                upgrades.getInstalledUpgrades(ModItems.ACCELERATOR_UPGRADE_CARD_II.get()),
+                upgrades.getInstalledUpgrades(ModItems.ACCELERATOR_UPGRADE_CARD_III.get()));
+        // 应用最高倍数硬上限（accelerator.maxMultiplierCap，-1 表示不限制）。
+        int cap = RuntimeConfig.accelMaxMultiplierCap();
+        return cap > 0 ? Math.min(result, cap) : result;
     }
 
     /**
-     * 执行一次加速：对每个「被选中 + 可加速 + 激活且未睡眠」的设备，
-     * 先通过 {@link ITickManager#alertDevice} 把它们提前到下一个 tick 触发，
-     * 再在单个游戏 tick 内额外多次调用其 {@link IGridTickable#tickingRequest}。
+     * 依据已安装的升级卡数量与被登记的设备数量计算每 tick 能量消耗。
      * <p>
-     * 加速原理：AE2 的压印机、分子装配室、接口等机器在工作期间返回
-     * {@link TickRateModulation#URGENT}（已经每个游戏 tick 满速工作），仅靠
-     * {@code alertDevice} 催促无法进一步提高频率；真正的加速必须让设备在单个
-     * 游戏 tick 内被调用多次，使其内部工作进度（加工时间、充能量、搬运量）成倍推进。
-     * 设备每次 tick 内部会根据传入的 tick 数缩放工作量，因此额外调用时传入 1，
-     * 表示额外推进 1 tick 的工作量，不会产生重复计量的副作用。
-     * <p>
-     * 性能优化：此处只遍历 {@link #cachedTargets} 里已解析好的目标节点，而不是每 tick
-     * 都对 {@code grid.getNodes()} 全网格扫描。缓存仅在需要时（初建、选中集合变化、
-     * 节点失效、{@link #CACHE_REBUILD_INTERVAL} 周期）由 {@link #rebuildTargetCache} 重建。
-     * 被加速设备本身推进的工作量不可削减（那就是加速效果本身），这里省的是加速器的维系开销。
+     * 能耗按「三种升级卡数量之和」线性叠加，与倍数的复合累乘无关——升级卡越多，
+     * 机器维持加速所需的能量越高。被加速设备数按登记表规模计（玩家勾选 + 配置卡注入），
+     * 与重构前的选中集合规模一致。
      */
-    private int runAccelerationPulse(IGrid grid) {
-        if (acceleratedDevices.isEmpty()) {
-            // 无选中设备：清空缓存，保持每 tick 最低开销。
-            cachedTargets.clear();
-            cachedCpuTargets.clear();
-            return 0;
-        }
-        ITickManager tickManager = grid.getTickManager();
-        // 网格未注册 tick 管理器（异常情况）时跳过本次脉冲，避免空指针。
-        if (tickManager == null) {
-            cachedTargets.clear();
-            cachedCpuTargets.clear();
-            return 0;
-        }
-        // 周期性重建目标缓存：每累计 CACHE_REBUILD_INTERVAL tick，或选中集合变化 / 节点失效
-        // 置脏后，重新遍历一次网格收集被选中设备，避免每个 tick 都全网格扫描。
-        if (cacheDirty || ++cacheRebuildTimer >= CACHE_REBUILD_INTERVAL) {
-            cacheRebuildTimer = 0;
-            cacheDirty = false;
-            rebuildTargetCache(grid);
-        }
-        // 智能加速倍率：扫描「被选中且正在合成」的 CPU，取其智能倍率的最大值。
-        // 合成 CPU 本身不走 IGridTickable，无法直接被 tickingRequest 加速；但当它处于合成
-        // 状态时，网格中所有「正在参与合成」的机器（busy 的 ICraftingProvider 机器）都会
-        // 被联动加速——这就是「智能加速」：无需玩家逐个选中参与合成的机器。
-        int smartCpuMultiplier = getSmartCpuMultiplier(grid);
-        // 每 20 tick（1 秒）输出一次加速诊断，避免每次调用都刷屏。
-        boolean log = ++pulseDebugTimer >= 20;
-        if (log) {
-            pulseDebugTimer = 0;
-        }
-        int accelerated = 0;
-        // 明细仅为诊断用，仅在需要打印时懒创建，避免每 tick 分配。
-        StringBuilder detail = log ? new StringBuilder() : null;
-        // 只遍历缓存的目标节点，而不是整张网格。
-        for (int i = cachedTargets.size() - 1; i >= 0; i--) {
-            AccelTarget target = cachedTargets.get(i);
-            IGridNode node = target.node();
-            // 节点已脱离本网格（被移除或换网）：忽略并标记待重建，下次重建时从缓存剔除。
-            if (node.getGrid() != grid) {
-                cacheDirty = true;
-                continue;
-            }
-            // 只加速处于激活状态（已通电、已 Boot、满足通道）的设备；非激活则本 tick 不处理。
-            if (!node.isActive()) {
-                continue;
-            }
-            // 设备标识已不在选中集合（被取消）：标记待重建，本 tick 跳过。
-            String deviceId = target.deviceId();
-            if (!acceleratedDevices.contains(deviceId)) {
-                cacheDirty = true;
-                continue;
-            }
-            // 每台设备使用各自独立的加速倍数（界面滑块调整，随 NBT 持久化）。
-            int deviceMultiplier = getDeviceMultiplier(deviceId);
-            // 每个游戏 tick 额外触发的次数 = 该设备加速倍数 - 1（设备自身已按自然节奏 tick 1 次）。
-            int extraCalls = Math.max(0, deviceMultiplier - 1);
-            // 未产生额外加速（倍数 <= 1）时直接跳过，避免不必要的 getTickingRequest 调用。
-            if (extraCalls <= 0) {
-                continue;
-            }
-            IGridTickable tickable = target.tickable();
-            // 设备当前期望睡眠（空闲中），催促唤醒没有意义，跳过。
-            boolean sleeping = tickable.getTickingRequest(node).isSleeping();
-            if (log) {
-                Object owner = node.getOwner();
-                detail.append(String.format("[%s@%s active=%s sleeping=%s x%d]",
-                        owner != null ? owner.getClass().getSimpleName() : "?", deviceId,
-                        node.isActive(), sleeping, deviceMultiplier));
-            }
-            if (sleeping) {
-                continue;
-            }
-            // 通过网格 tick 管理器把设备提前到「下一个 tick」触发（对 IO 端口/总线等
-            // 自然节奏较慢、每次调用做固定量工作的设备有效）。
-            tickManager.alertDevice(node);
-            // 真正的加速：单个游戏 tick 内额外多次调用设备的网格 tick 逻辑。
-            // 压印机、分子装配室、接口等机器工作期间返回 URGENT（已每游戏 tick 满速），
-            // 仅靠 alertDevice 无法再提高频率，多次调用 tickingRequest 才能提升工作速率。
-            for (int c = 0; c < extraCalls; c++) {
-                tickable.tickingRequest(node, 1);
-            }
-            accelerated++;
-        }
+    private double getRequiredPowerPerTick() {
+        int upgradeCards = upgrades.getInstalledUpgrades(ModItems.ACCELERATOR_UPGRADE_CARD_I.get())
+                + upgrades.getInstalledUpgrades(ModItems.ACCELERATOR_UPGRADE_CARD_II.get())
+                + upgrades.getInstalledUpgrades(ModItems.ACCELERATOR_UPGRADE_CARD_III.get());
+        return PowerModel.requiredPerTick(
+                RuntimeConfig.powerPerTick(), RuntimeConfig.powerPerUpgradeCard(),
+                RuntimeConfig.powerPerAcceleratedDevice(),
+                upgradeCards, targetRegistry.size());
+    }
 
-        // 智能联动加速：仅当有「被选中且正在合成」的 CPU 时才进行。
-        // 对缓存的「参与合成机器」逐个按智能倍率触发，跳过节点离线/失效与处于睡眠的设备。
-        if (smartCpuMultiplier > 1) {
-            for (int i = cachedCpuTargets.size() - 1; i >= 0; i--) {
-                AccelTarget target = cachedCpuTargets.get(i);
-                IGridNode node = target.node();
-                // 节点已脱离本网格（被移除或换网）：忽略并标记待重建。
-                if (node.getGrid() != grid) {
-                    cacheDirty = true;
-                    continue;
-                }
-                if (!node.isActive()) {
-                    continue;
-                }
-                IGridTickable tickable = target.tickable();
-                int extraCalls = Math.max(0, smartCpuMultiplier - 1);
-                if (extraCalls <= 0) {
-                    continue;
-                }
-                boolean sleeping = tickable.getTickingRequest(node).isSleeping();
-                if (log) {
-                    Object owner = node.getOwner();
-                    detail.append(String.format("[智能][%s@%s active=%s sleeping=%s x%d]",
-                            owner != null ? owner.getClass().getSimpleName() : "?", target.deviceId(),
-                            node.isActive(), sleeping, smartCpuMultiplier));
-                }
-                if (sleeping) {
-                    continue;
-                }
-                tickManager.alertDevice(node);
-                for (int c = 0; c < extraCalls; c++) {
-                    tickable.tickingRequest(node, 1);
-                }
-                accelerated++;
-            }
+    // ========================= 智能加速倍率 =========================
+
+    /**
+     * 读取当前智能加速倍率（每个游戏 tick 只计算一次并缓存）。
+     * <p>
+     * 智能加速：选中「合成 CPU」后，当 CPU 处于合成状态时，对参与合成的机器做联动加速。
+     * 合成 CPU 状态每 tick 变化，联动目标每 tick 都要拿到当前值；而 CPU 数量通常只有几台，
+     * 扫描开销可忽略。用游戏时间做缓存键，避免同一 tick 内为每台联动设备重复扫描。
+     */
+    private int currentSmartCpuMultiplier() {
+        Level world = level;
+        if (world == null) {
+            return 0;
         }
-        if (log) {
-            Torcherinoaemod.LOGGER.info(
-                    "[DBG][加速诊断] {} | 智能倍率={} | 实际加速设备={} | 命中明细={}",
-                    getBlockPos(), smartCpuMultiplier, accelerated, detail);
+        long now = world.getGameTime();
+        if (now != smartCheckTick) {
+            smartCheckTick = now;
+            smartCpuMultiplier = computeSmartCpuMultiplier();
         }
-        // 返回本 tick 真正被加速的设备数（含智能联动加速），供 commonTick 判断是否工作/耗能。
-        return accelerated;
+        return smartCpuMultiplier;
     }
 
     /**
-     * 计算当前「被选中且正在合成」的合成 CPU 的最高智能加速倍率。
-     * <p>
-     * 只有被玩家选中（进入 {@code acceleratedDevices}）且正有任务在跑（{@code isBusy()}）
-     * 的 CPU 才会计入智能加速；空闲 CPU 没有合成任务，联动加速其参与机器没有意义。
-     * 若没有任何被选中的 CPU 处于合成状态，返回 0（表示本次脉冲不做智能联动加速）。
-     * CPU 数量通常只有几台，此扫描开销可忽略。
+     * 扫描网格中被玩家选中（已登记）且正有任务在跑（{@code isBusy()}）的合成 CPU，
+     * 返回其登记倍率的最大值；没有任何被选中的 CPU 处于合成状态时返回 0。
      */
-    private int getSmartCpuMultiplier(IGrid grid) {
+    private int computeSmartCpuMultiplier() {
+        IGrid grid = grid();
+        if (grid == null) {
+            return 0;
+        }
         int max = 0;
+        int accelMultiplier = getAccelMultiplier();
         for (ICraftingCPU cpu : grid.getCraftingService().getCpus()) {
-            String id = AE2GridSupport.cpuDeviceId(cpu);
-            if (id == null || !acceleratedDevices.contains(id) || !cpu.isBusy()) {
+            DeviceId id = CraftingSupport.cpuDeviceId(dimension(), cpu);
+            if (id == null || !targetRegistry.isAccelerated(id) || !cpu.isBusy()) {
                 continue;
             }
-            max = Math.max(max, getDeviceMultiplier(id));
+            max = Math.max(max, targetRegistry.multiplierFor(id, accelMultiplier));
         }
         return max;
     }
 
+    // ========================= 目标缓存重建 =========================
+
     /**
-     * 重新遍历网格，把「当前被选中的可加速设备」收集进 {@link #cachedTargets}。
+     * 重新遍历网格，把加速目标收集进缓存。
      * <p>
-     * 该遍历原本每 tick 都要执行一次，代价与网络规模成正比；改为仅在需要时执行
-     * （初建、选中集合变化、节点失效、周期重建），加速脉冲只需遍历这份小缓存。
-     * <p>
-     * 筛选条件与菜单设备列表采集保持一致（见 {@link AE2GridSupport#isAcceleratableNode}）：
-     * 这里不判断 {@code isActive()}——激活状态每 tick 变化，交给加速脉冲内单独判断，
-     * 避免因某设备暂时未激活而把它漏出缓存（否则要等下一个重建周期才能重新纳入）。
+     * 只遍历网格一次，产出两类目标并写入同一列表（引擎按每台设备的倍率放行）：
+     * <ul>
+     *   <li>已登记的设备（玩家勾选 / 配置卡注入）→ 常规加速目标；</li>
+     *   <li>未被登记、但属于合成相关机器的设备（接口 / 样板供应器等 ICraftingProvider，
+     *       或分子装配室 / 压印机 / 充能器等合成执行机器）→ 智能联动目标，
+     *       标识记入 {@link #craftingLinkedIds}，仅当有正在合成的被选中 CPU 时才被放行。</li>
+     * </ul>
+     * 筛选谓词与菜单设备列表采集保持一致（见 {@link DeviceScanner#isAcceleratableNode}）。
+     * 激活状态每 tick 变化，不在此判断（避免设备暂时未激活而被漏出缓存），交给引擎按 tick 判定。
      */
-    private void rebuildTargetCache(IGrid grid) {
-        cachedTargets.clear();
-        cachedCpuTargets.clear();
-        // 完全没有选中任何设备（含合成 CPU）时无需构建缓存，保持每 tick 最低开销。
-        if (acceleratedDevices.isEmpty()) {
-            return;
+    private List<AccelerationTarget> rebuildTargets() {
+        IGrid grid = grid();
+        if (grid == null) {
+            craftingLinkedIds.clear();
+            return List.of();
         }
+        List<AccelerationTarget> targets = new ArrayList<>();
+        craftingLinkedIds.clear();
         for (IGridNode node : grid.getNodes()) {
-            if (!AE2GridSupport.isAcceleratableNode(node, this)) {
+            if (!DeviceScanner.isAcceleratableNode(node, this)) {
                 continue;
             }
             Object owner = node.getOwner();
-            String deviceId = AE2GridSupport.deviceIdOf(owner);
-            if (deviceId == null) {
+            DeviceId id = DeviceScanner.deviceIdOf(owner);
+            if (id == null) {
                 continue;
             }
             IGridTickable tickable = node.getService(IGridTickable.class);
             if (tickable == null) {
                 continue;
             }
-            // 玩家在列表中直接选中的设备 -> 缓存为常规加速目标。
-            if (acceleratedDevices.contains(deviceId)) {
-                cachedTargets.add(new AccelTarget(node, deviceId, tickable));
+            if (targetRegistry.isAccelerated(id)) {
+                targets.add(new AccelerationTarget(id, node, tickable));
             } else if (isCraftingRelated(node)) {
-                // 未被玩家选中、但属于合成相关机器（pattern provider / 分子装配室 / 压印机）
-                // -> 缓存为智能联动目标，供选中 CPU 时联动加速。运行时用睡眠判断兜底，
-                // 空闲机器不会被空转触发。
-                cachedCpuTargets.add(new AccelTarget(node, deviceId, tickable));
+                targets.add(new AccelerationTarget(id, node, tickable));
+                craftingLinkedIds.add(id);
             }
         }
+        return targets;
     }
 
     /**
@@ -481,77 +435,71 @@ public class AEAcceleratorBlockEntity extends AENetworkedPoweredBlockEntity
      * <ul>
      *   <li>pattern provider（接口、样板供应器）：在节点上注册了 {@link ICraftingProvider}
      *       服务，负责接收 CPU 派发的合成任务；</li>
-     *   <li>合成执行机器（见 {@link AE2GridSupport#isCraftingMachineType}）：凡实现
+     *   <li>合成执行机器（见 {@link CraftingSupport#isCraftingMachineType}）：凡实现
      *       {@link appeng.api.implementations.blockentities.ICraftingMachine} 的方块
      *       （分子装配室及第三方）一律命中；未实现该接口但参与合成的压印机、充能器
      *       通过类型集合兜底。被邻接的 pattern provider 调用、真正执行合成。</li>
      * </ul>
      * 借助该判定，无需回溯 CPU 的内部任务映射（AE2 未公开「CPU → 具体机器」的查询），
-     * 即可命中「正在为合成提供服务」的机器。是否「此刻参与」（机器忙碌）由缓存重建时与
-     * 加速脉冲内的睡眠判断共同决定。
+     * 即可命中「正在为合成提供服务」的机器。是否「此刻参与」（机器忙碌）由加速脉冲内的
+     * 睡眠判断共同决定。
      */
     private static boolean isCraftingRelated(IGridNode node) {
         if (node.getService(ICraftingProvider.class) != null) {
             return true;
         }
         Object owner = node.getOwner();
-        return owner != null && AE2GridSupport.isCraftingMachineType(owner);
+        return owner != null && CraftingSupport.isCraftingMachineType(owner);
+    }
+
+    // ========================= 加速目标管理（供菜单调用） =========================
+
+    /**
+     * 目标登记表版本号（每变更一次 +1）：供菜单判断「设备列表缓存」是否失效（§8.4）。
+     * <p>
+     * 玩家勾选 / 调倍数 / 配置卡注入或取出 / 加载存档都会使登记表内容变化，进而使设备列表的
+     * 「加速中」标记与倍率过期；版本号变化时菜单才会重建并重新下发列表。
+     */
+    public int targetRegistryVersion() {
+        return targetRegistry.version();
     }
 
     /**
-     * 依据已安装的速度升级卡数量与被选中设备数量计算每 tick 能量消耗。
+     * 指定设备当前是否处于被加速状态（任来源：玩家勾选或配置卡注入）。
      */
-    private double getRequiredPowerPerTick() {
-        double speedCards = getInstalledUpgrades(AEItems.SPEED_CARD.get());
-        return POWER_PER_TICK + speedCards * POWER_PER_SPEED_CARD
-                + acceleratedDevices.size() * POWER_PER_ACCELERATED_DEVICE;
-    }
-
-    // ========================= 加速目标管理 =========================
-
-    /**
-     * 被选中进行加速的设备标识集合（只读视图）。
-     */
-    public Set<String> getAcceleratedDevices() {
-        return Set.copyOf(acceleratedDevices);
+    public boolean isAccelerating(DeviceId deviceId) {
+        return targetRegistry.isAccelerated(deviceId);
     }
 
     /**
-     * 指定设备标识是否正在被加速。
+     * 指定设备的当前加速倍数：已登记则返回其登记倍数，否则返回最高倍数
+     * （未设置过的设备默认按最高加速，供界面展示与滑块初值）。
      */
-    public boolean isAccelerating(String deviceId) {
-        return acceleratedDevices.contains(deviceId);
-    }
-
-    /**
-     * 指定设备的当前加速倍数：已在倍数表中则返回其独立设置的倍数，
-     * 否则返回最高倍数（未设置过的设备默认按最高加速）。
-     */
-    public int getDeviceMultiplier(String deviceId) {
-        return deviceMultipliers.getOrDefault(deviceId, getAccelMultiplier());
+    public int getDeviceMultiplier(DeviceId deviceId) {
+        return targetRegistry.multiplierFor(deviceId, getAccelMultiplier());
     }
 
     /**
      * 设置指定设备的加速倍数（界面横向滚动条实时发送）。
      * <p>
-     * 倍数大于 1 时把设备加入加速列表；倍数小于等于 1 视为「取消加速」，
-     * 从加速列表与倍数表中同时移除。由菜单的服务端动作处理器调用。
+     * 倍数大于 1 时登记为「玩家设置」来源；倍数小于等于 1 视为「取消加速」，移除该来源的登记。
+     * 由菜单的服务端动作处理器调用。
      *
-     * @param deviceId   设备标识（由 AE2GridSupport.deviceIdOf 生成）
+     * @param deviceId   设备标识（含维度与种类，见 {@link DeviceId}）
      * @param multiplier 新的加速倍数（1 表示不加速）
      */
-    public void setDeviceMultiplier(String deviceId, int multiplier) {
+    public void setDeviceMultiplier(DeviceId deviceId, int multiplier) {
         if (multiplier <= 1) {
-            acceleratedDevices.remove(deviceId);
-            deviceMultipliers.remove(deviceId);
+            // 取消：移除玩家来源。若设备仍被配置卡注入（CONFIG_CARD 来源），下次卡片同步
+            // 仍会按卡片配置恢复——玩家要彻底停止卡管理的设备，应取出配置卡。
+            targetRegistry.set(deviceId, 1, AccelSource.PLAYER);
         } else {
             // 上限钳制到当前最高倍数（受速度升级卡影响）。
             int clamped = Math.min(multiplier, getAccelMultiplier());
-            acceleratedDevices.add(deviceId);
-            deviceMultipliers.put(deviceId, clamped);
+            targetRegistry.set(deviceId, clamped, AccelSource.PLAYER);
         }
         // 选中集合发生变化：标记缓存待重建，使「点击加速 / 取消加速」立即生效。
-        cacheDirty = true;
+        markTargetsDirty();
         saveChanges();
         markForClientUpdate();
     }
@@ -560,134 +508,34 @@ public class AEAcceleratorBlockEntity extends AENetworkedPoweredBlockEntity
      * 切换指定设备的加速状态（未加速 → 按最高倍数加速；已加速 → 取消加速）。
      * 由菜单的服务端动作处理器调用。
      */
-    public void toggleAcceleratedDevice(String deviceId) {
-        if (acceleratedDevices.contains(deviceId)) {
+    public void toggleAcceleratedDevice(DeviceId deviceId) {
+        if (targetRegistry.isAccelerated(deviceId)) {
             setDeviceMultiplier(deviceId, 1);
         } else {
             setDeviceMultiplier(deviceId, getAccelMultiplier());
         }
     }
 
-    // ========================= 配置卡自动注入 =========================
+    // ========================= 库存回调与生命周期 =========================
 
     /**
-     * 按配置卡上的绑定信息同步「卡注入的加速设备」。
-     * <p>
-     * 卡片放入本机配置卡槽后：把卡上记录、且位于本网络内可加速（非自身）的设备加入
-     * {@link #acceleratedDevices}（默认按最高倍数，复用现有加速脉冲与倍数表），
-     * 实现「卡在则加速」。卡片取出、更换、绑定数据变化或网格接入变化时重新同步，
-     * 把不再有效的卡注入设备撤销（「卡走则停」）。
-     * <p>
-     * 玩家通过 GUI 手动勾选的设备不受影响：本方法只维护 {@link #configCardDevices}
-     * 集合中的设备，其余加速状态由玩家控制；若玩家手动勾选与卡注入重叠，任何一方
-     * 取消都会停止该设备——符合直觉。
-     */
-    private void syncConfigCardDevices() {
-        // 客户端没有权威网格，同步只在服务端进行。
-        if (level != null && level.isClientSide()) {
-            return;
-        }
-        Set<String> bound = new HashSet<>();
-        ItemStack card = configCardInventory.getStackInSlot(0);
-        if (AcceleratorConfigCardItem.isConfigCard(card)) {
-            bound.addAll(AcceleratorConfigCardItem.getBoundDevices(card));
-        }
-        // 只注入「本网络内可加速且非自身」的设备（筛选复用与加速脉冲一致的谓词）。
-        Set<String> inNetwork = new HashSet<>();
-        IGrid grid = getMainNode().getGrid();
-        if (grid != null) {
-            for (String deviceId : bound) {
-                if (isCardDeviceInGrid(grid, deviceId)) {
-                    inNetwork.add(deviceId);
-                }
-            }
-        }
-        // 新出现的卡设备：按默认最高倍数注入（setDeviceMultiplier 负责持久化与缓存置脏）。
-        for (String deviceId : inNetwork) {
-            if (!configCardDevices.contains(deviceId) && !acceleratedDevices.contains(deviceId)) {
-                setDeviceMultiplier(deviceId, getAccelMultiplier());
-            }
-        }
-        // 从卡上消失（移除绑定/换卡/卡被取出/网络不可用）的卡设备：撤销加速。
-        for (String deviceId : configCardDevices) {
-            if (!inNetwork.contains(deviceId)) {
-                setDeviceMultiplier(deviceId, 1);
-            }
-        }
-        configCardDevices.clear();
-        configCardDevices.addAll(inNetwork);
-    }
-
-    /**
-     * 判断设备标识对应的节点是否位于本网格内且可加速（排除自身）。
-     */
-    private boolean isCardDeviceInGrid(IGrid grid, String deviceId) {
-        for (IGridNode node : grid.getNodes()) {
-            if (!AE2GridSupport.isAcceleratableNode(node, this)) {
-                continue;
-            }
-            String id = AE2GridSupport.deviceIdOf(node.getOwner());
-            if (id != null && id.equals(deviceId)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /**
-     * 库存内容变化回调（由 AppEngInternalInventory 触发）：仅关心配置卡槽位变化，
-     * 其余库存变化走超类默认逻辑（保存方块实体）。
+     * 库存内容变化回调（由内部库存触发）：配置卡槽位变化转交绑定组件处理
+     * （放入/取出/更换 -> 立即同步卡注入），其余库存变化走超类默认逻辑（保存方块实体）。
      */
     @Override
     public void onChangeInventory(AppEngInternalInventory inv, int slot) {
         super.onChangeInventory(inv, slot);
-        if (inv == configCardInventory) {
-            // 卡片放入/取出/更换 -> 立即同步卡注入的设备（无需等待下一个重建周期）。
-            syncConfigCardDevices();
-        }
+        configCardBinding.onHostInventoryChanged(inv, slot);
     }
 
     /**
-     * 方块被移除（破坏、爆炸、活塞等任何途径）时清理绑定本机的配置卡：
-     * <ul>
-     *   <li>本机槽位内的卡片：清空其绑定（避免「即插即用」配置指向已摧毁的加速器）；</li>
-     *   <li>在线玩家背包中绑定本机的卡片：清空其绑定。</li>
-     * </ul>
-     * 仅服务端执行；客户端区块卸载同样会触发本回调，通过 isClientSide 保护。
-     * 同时撤销仍由卡注入的加速设备（方块都没有了，加速目标自然失去意义）。
+     * 方块被移除（破坏、爆炸、活塞等任何途径）：先走超类清理，再由配置卡绑定组件清空
+     * 槽位内与在线玩家背包中绑定本机的配置卡（避免「即插即用」配置指向已摧毁的加速器）。
      */
     @Override
     public void setRemoved() {
         super.setRemoved();
-        Level levelNow = level;
-        if (levelNow != null && !levelNow.isClientSide()) {
-            clearConfigCardBindings(levelNow);
-        }
-    }
-
-    /**
-     * 清空绑定本机的全部配置卡（槽位内 + 在线玩家背包），服务端专用。
-     */
-    private void clearConfigCardBindings(Level levelNow) {
-        // 槽位内的卡：直接改写其 NBT（库存物品引用在服务端是权威对象）。
-        ItemStack card = configCardInventory.getStackInSlot(0);
-        if (AcceleratorConfigCardItem.isConfigCard(card)
-                && AcceleratorConfigCardItem.getBoundAccelerator(card) != null) {
-            AcceleratorConfigCardItem.unbindAccelerator(card);
-            configCardInventory.setItemDirect(0, card);
-        }
-        // 在线玩家背包中的卡：扫描全部物品槽（主物品栏/装备/副手），清理绑定本机的卡片。
-        BlockPos selfPos = getBlockPos();
-        for (Player player : levelNow.players()) {
-            Inventory inventory = player.getInventory();
-            for (int i = 0; i < inventory.getContainerSize(); i++) {
-                ItemStack stack = inventory.getItem(i);
-                if (AcceleratorConfigCardItem.isConfigCard(stack)
-                        && AcceleratorConfigCardItem.isBoundTo(stack, selfPos)) {
-                    AcceleratorConfigCardItem.unbindAccelerator(stack);
-                }
-            }
-        }
+        configCardBinding.onHostRemoved();
     }
 
     // ========================= NBT 持久化 =========================
@@ -695,47 +543,22 @@ public class AEAcceleratorBlockEntity extends AENetworkedPoweredBlockEntity
     @Override
     public void saveAdditional(CompoundTag data, HolderLookup.Provider registries) {
         super.saveAdditional(data, registries);
-        // 持久化配置卡库存内容，重启后保留玩家放入的配置卡。
-        configCardInventory.writeToNBT(data, TAG_CONFIG_CARD, registries);
-        // 持久化被选中的加速目标（设备标识），重启后保留玩家设置。
-        ListTag idList = new ListTag();
-        for (String id : acceleratedDevices) {
-            idList.add(StringTag.valueOf(id));
-        }
-        data.put(TAG_ACCELERATED_DEVICES, idList);
-        // 持久化每台设备独立的加速倍数（与 accelerated_devices 一一对应）。
-        int[] multipliers = acceleratedDevices.stream()
-                .mapToInt(id -> deviceMultipliers.getOrDefault(id, getAccelMultiplier())).toArray();
-        data.putIntArray(TAG_DEVICE_MULTIPLIERS, multipliers);
+        // 持久化配置卡库存内容（由绑定组件负责），重启后保留玩家放入的配置卡。
+        configCardBinding.save(data, registries);
+        // 持久化加速目标登记表（含来源），重启后保留玩家设置与卡注入，且可精确撤销。
+        // 旧存档格式（accelerated_devices / device_multipliers）已断档，加载时自动忽略。
+        targetRegistry.save(data, registries);
     }
 
     @Override
     public void loadTag(CompoundTag data, HolderLookup.Provider registries) {
         super.loadTag(data, registries);
-        // 恢复配置卡库存内容。
-        configCardInventory.readFromNBT(data, TAG_CONFIG_CARD, registries);
-        acceleratedDevices.clear();
-        deviceMultipliers.clear();
-        ListTag idList = data.getList(TAG_ACCELERATED_DEVICES, Tag.TAG_STRING);
-        int[] multipliers = data.getIntArray(TAG_DEVICE_MULTIPLIERS);
-        if (idList.isEmpty() && data.contains(TAG_ACCELERATED_DEVICES)) {
-            // 兼容旧存档：旧版本把加速目标以「坐标 long[]」存储，这里转换为新的设备标识。
-            long[] positions = data.getLongArray(TAG_ACCELERATED_DEVICES);
-            idList = new ListTag();
-            for (long p : positions) {
-                idList.add(StringTag.valueOf(String.valueOf(p)));
-            }
-        }
-        for (int i = 0; i < idList.size(); i++) {
-            String id = idList.getString(i);
-            acceleratedDevices.add(id);
-            // 老存档可能没有倍数表，缺失时按基础最高倍数补齐（loadTag 阶段升级卡库存尚未加载，用常量）。
-            deviceMultipliers.put(id, i < multipliers.length ? multipliers[i] : BASE_ACCEL_MULTIPLIER);
-        }
-        // 配置卡槽从 NBT 恢复后同步一次卡注入的设备。loadTag 阶段网格尚不可用
-        // （grid 为 null），卡设备暂不注入；待节点上线回调 onMainNodeStateChanged 时再补。
-        configCardDevices.clear();
-        syncConfigCardDevices();
+        // 恢复配置卡库存内容（由绑定组件负责）。
+        configCardBinding.load(data, registries);
+        // 恢复目标登记表（含 PLAYER / CONFIG_CARD 来源标记）。
+        targetRegistry.load(data, registries);
+        // 目标缓存标脏：首个 tick 会重建；配置卡注入的同步待网格就绪后由节点状态回调触发。
+        markTargetsDirty();
     }
 
     /**
@@ -760,25 +583,26 @@ public class AEAcceleratorBlockEntity extends AENetworkedPoweredBlockEntity
 
         // 根本未接入网格：节点很可能尚未被 AE 网络客户端扫描到（接线面 / 注册能力问题）。
         if (grid == null) {
-            Torcherinoaemod.LOGGER.info("[DBG][网络诊断] {} 未接入任何 AE 网格（grid=null），视为离线",
-                    getBlockPos());
+            DebugLog.info("[诊断][网络] {} 未接入任何 AE 网格（grid=null），视为离线", getBlockPos());
             return;
         }
 
         IEnergyService energy = grid.getEnergyService();
         IGridNode gridNode = node.getNode();
         if (gridNode == null) {
-            Torcherinoaemod.LOGGER.info("[DBG][网络诊断] {} 已发现网格，但底层节点仍为空（尚未注册到网格节点列表）",
-                    getBlockPos());
+            DebugLog.info("[诊断][网络] {} 已发现网格，但底层节点仍为空（尚未注册到网格节点列表）", getBlockPos());
             return;
         }
-        Torcherinoaemod.LOGGER.info(
-                "[DBG][网络诊断] {} | 连接面={} | 已Boot={} | 有电={} | 通道满足={} | 激活={} | 在线={} | 通道={}/{} | 网络能量={}/{} | 加速目标={}",
+        DebugLog.info(
+                "[诊断][网络] {} | 连接面={} | 已Boot={} | 有电={} | 通道满足={} | 激活={} | 在线={} | 通道={}/{} |"
+                        + " 网络能量={}/{} | 登记设备={}",
                 getBlockPos(), gridNode.getConnectedSides(), gridNode.hasGridBooted(), gridNode.isPowered(),
                 gridNode.meetsChannelRequirements(), gridNode.isActive(), gridNode.isOnline(),
                 gridNode.getUsedChannels(), gridNode.getMaxChannels(), energy.getStoredPower(),
-                energy.getMaxStoredPower(), acceleratedDevices);
+                energy.getMaxStoredPower(), targetRegistry.size());
     }
+
+    // ========================= 状态同步（GUI / 模型） =========================
 
     /**
      * 是否已接入 AE 网络（连接状态，供 GUI 显示）。
@@ -797,9 +621,12 @@ public class AEAcceleratorBlockEntity extends AENetworkedPoweredBlockEntity
     private void setOnline(boolean online) {
         if (this.online != online) {
             this.online = online;
-            Torcherinoaemod.LOGGER.debug("[DBG] setOnline -> {} | grid={} isOnline={} isActive={} isPowered={}",
-                    online, getMainNode().getGrid() != null, getMainNode().isOnline(),
-                    getMainNode().isActive(), getMainNode().isPowered());
+            // 注意：getMainNode().isPowered() 内部走 getGrid()，节点未入网时同样会抛 ISE，
+            // 因此用安全取的网格 + 其能量服务推导，避免状态切换瞬间崩溃（见 grid()）。
+            IGrid grid = grid();
+            DebugLog.debug("[状态] setOnline -> {} | grid={} isOnline={} isActive={} isPowered={}",
+                    online, grid != null, getMainNode().isOnline(), getMainNode().isActive(),
+                    grid != null && grid.getEnergyService().isNetworkPowered());
             // 同步给 GUI（writeToStream）显示的连接状态。
             markForClientUpdate();
             // 更新方块状态（online 属性），驱动客户端切换 on 模型，仅当属性变化时才会真正 setBlockAndUpdate。
@@ -810,7 +637,7 @@ public class AEAcceleratorBlockEntity extends AENetworkedPoweredBlockEntity
     private void setWorking(boolean working) {
         if (this.working != working) {
             this.working = working;
-            Torcherinoaemod.LOGGER.debug("[DBG] setWorking -> {}", working);
+            DebugLog.debug("[状态] setWorking -> {}", working);
             markForClientUpdate();
             markForUpdate();
         }
@@ -822,16 +649,17 @@ public class AEAcceleratorBlockEntity extends AENetworkedPoweredBlockEntity
      */
     @Override
     public void onMainNodeStateChanged(IGridNodeListener.State reason) {
-        Torcherinoaemod.LOGGER.debug("[DBG] onMainNodeStateChanged reason={} | grid={} isOnline={} isActive={} isPowered={}",
-                reason, getMainNode().getGrid() != null, getMainNode().isOnline(),
-                getMainNode().isActive(), getMainNode().isPowered());
+        IGrid grid = grid();
+        DebugLog.debug("[状态] onMainNodeStateChanged reason={} | grid={} isOnline={} isActive={} isPowered={}",
+                reason, grid != null, getMainNode().isOnline(), getMainNode().isActive(),
+                grid != null && grid.getEnergyService().isNetworkPowered());
         // 「是否已接入网络」以 AE2 权威的节点状态变化事件为准，在这里据此重算 online
         // 并同步客户端。避免只在 commonTick 里计算——因为 IManagedGridNode.getGrid() 在
         // commonTick 调用时机的返回值不可靠（客户端侧永远为 null），导致 online 恒为 false、UI 显示未连接。
-        setOnline(getMainNode().getGrid() != null && getMainNode().isOnline());
+        setOnline(grid != null && getMainNode().isOnline());
         // 网格接入状态变化时重新同步「由配置卡注入的设备」（如加载后网格从无到有，
         // 把卡上记录的设备纳入加速；或换网后撤销不再属于本网络的卡设备）。
-        syncConfigCardDevices();
+        configCardBinding.onHostInventoryChanged(getConfigCardInventory(), 0);
         // 无论 online 是否变化都刷新方块状态（驱动 on/off 模型切换）。
         markForUpdate();
     }
@@ -841,7 +669,7 @@ public class AEAcceleratorBlockEntity extends AENetworkedPoweredBlockEntity
         super.writeToStream(data);
         data.writeBoolean(online);
         data.writeBoolean(working);
-        Torcherinoaemod.LOGGER.debug("[DBG] writeToStream(server): online={} working={}", online, working);
+        DebugLog.debug("[同步] writeToStream(server): online={} working={}", online, working);
     }
 
     @Override
@@ -849,7 +677,7 @@ public class AEAcceleratorBlockEntity extends AENetworkedPoweredBlockEntity
         boolean superResult = super.readFromStream(data);
         this.online = data.readBoolean();
         this.working = data.readBoolean();
-        Torcherinoaemod.LOGGER.debug("[DBG] readFromStream(client): online={} working={}", online, working);
+        DebugLog.debug("[同步] readFromStream(client): online={} working={}", online, working);
         return superResult;
     }
 }

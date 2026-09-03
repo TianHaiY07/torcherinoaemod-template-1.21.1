@@ -1,4 +1,6 @@
-package com.tianhai.torcherino_ae.menu;
+package com.tianhai.torcherino_ae.client.widget;
+import com.tianhai.torcherino_ae.menu.AEAcceleratorMenu;
+import com.tianhai.torcherino_ae.menu.DeviceEntry;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -24,6 +26,7 @@ import appeng.client.gui.widgets.Scrollbar;
 
 import com.tianhai.torcherino_ae.Torcherinoaemod;
 import com.tianhai.torcherino_ae.client.AEGuiMetrics;
+import com.tianhai.torcherino_ae.config.RuntimeConfig;
 
 /**
  * 「可加速设备」列表控件。
@@ -73,6 +76,19 @@ public class DeviceListWidget implements ICompositeWidget {
     // 搜索过滤关键字（空串表示不过滤）。由搜索文本框的回调设置。
     private String filter = "";
 
+    // 过滤结果缓存（§8.4）：getFilteredDevices 在 updateBeforeRender / hitTestDevice /
+    // drawBackgroundLayer / getTooltip 每帧被调用多次，只在「过滤关键字」或「源列表引用
+    // （menu.devices 经网络更新会换新 List）」变化时重算，避免每帧全列表遍历 +
+    // toLowerCase + 坐标字符串拼接。缓存列表仅供读取，控件不修改其中的元素。
+    private List<DeviceEntry> cachedFiltered = List.of();
+    private List<DeviceEntry> cachedFilteredSource = null;
+    private String cachedFilterKey = "";
+
+    // 行尾状态图标 Blitter：构造期一次性准备「未加速 / 加速中」两态，
+    // 绘制时仅 copy() 复用，避免每帧重建 Blitter 链（§8.4）。
+    private final Blitter idleMarkIcon;
+    private final Blitter accelMarkIcon;
+
     // 控件是否可交互：配置弹窗打开时被禁用，避免点击穿透到列表行。
     private boolean enabled = true;
 
@@ -91,6 +107,13 @@ public class DeviceListWidget implements ICompositeWidget {
         this.textColor = style.getColor(PaletteColor.DEFAULT_TEXT_COLOR).toARGB();
         this.mutedTextColor = style.getColor(PaletteColor.MUTED_TEXT_COLOR).toARGB();
         this.accentColor = style.getColor(PaletteColor.SELECTION_COLOR).toARGB();
+        // 行尾状态图标的两态 Blitter：贴图素材区域见 AEGuiMetrics.MARK_*。
+        this.idleMarkIcon = Blitter.texture(AEGuiMetrics.ACCELERATOR_GUI)
+                .src(AEGuiMetrics.MARK_TEX_X, AEGuiMetrics.MARK_TEX_Y_IDLE,
+                        AEGuiMetrics.MARK_TEX_WIDTH, AEGuiMetrics.MARK_TEX_HEIGHT_IDLE);
+        this.accelMarkIcon = Blitter.texture(AEGuiMetrics.ACCELERATOR_GUI)
+                .src(AEGuiMetrics.MARK_TEX_X, AEGuiMetrics.MARK_TEX_Y_ACCEL,
+                        AEGuiMetrics.MARK_TEX_WIDTH, AEGuiMetrics.MARK_TEX_HEIGHT_ACCEL);
         // 该控件自己处理滚轮（优先于滚动条全局捕获），避免双重滚动。
         this.scrollbar.setCaptureMouseWheel(false);
     }
@@ -133,19 +156,34 @@ public class DeviceListWidget implements ICompositeWidget {
     }
 
     /**
-     * 返回经过搜索过滤的设备列表快照。
+     * 返回经过搜索过滤的设备列表。
+     * <p>
+     * 默认带缓存：仅当「过滤关键字」或「源列表引用」变化时才重新过滤（§8.4）。
+     * 客户端配置 {@code client.cacheFilteredList} 可回退为旧的即时过滤。调用方只读不修改
+     * 返回值；源列表引用由 {@code @GuiSync} 网络更新产生的新 DeviceList 驱动。
      */
     private List<DeviceEntry> getFilteredDevices() {
         List<DeviceEntry> all = menu.devices.devices();
-        if (filter.isEmpty()) {
-            return all;
+        if (!RuntimeConfig.clientCacheFilteredList()) {
+            return filter.isEmpty() ? all : computeFilteredDevices(all);
         }
-        String posFilter = filter;
+        if (all != cachedFilteredSource || !filter.equals(cachedFilterKey)) {
+            cachedFilteredSource = all;
+            cachedFilterKey = filter;
+            cachedFiltered = filter.isEmpty() ? all : computeFilteredDevices(all);
+        }
+        return cachedFiltered;
+    }
+
+    /**
+     * 按关键字过滤设备：匹配设备名称或坐标字符串（均已小写化）。
+     */
+    private List<DeviceEntry> computeFilteredDevices(List<DeviceEntry> all) {
         List<DeviceEntry> result = new ArrayList<>();
         for (DeviceEntry device : all) {
             String posString = device.pos().getX() + "," + device.pos().getY() + "," + device.pos().getZ();
             if (device.name().getString().toLowerCase(Locale.ROOT).contains(filter)
-                    || posString.contains(posFilter)) {
+                    || posString.contains(filter)) {
                 result.add(device);
             }
         }
@@ -349,11 +387,8 @@ public class DeviceListWidget implements ICompositeWidget {
             // 垂直居中；仅加速中形式图标下移 1px 与未加速图标对齐视觉效果。
             int markY = rowY + (AEGuiMetrics.ROW_HEIGHT - markHeight) / 2
                     + (accelShown ? AEGuiMetrics.MARK_Y_ACCEL_SHIFT : 0);
-            Blitter.texture(AEGuiMetrics.ACCELERATOR_GUI)
-                    .src(AEGuiMetrics.MARK_TEX_X, accelShown ? AEGuiMetrics.MARK_TEX_Y_ACCEL : AEGuiMetrics.MARK_TEX_Y_IDLE,
-                            AEGuiMetrics.MARK_TEX_WIDTH, markHeight)
-                    .dest(markX, markY)
-                    .blit(guiGraphics);
+            // 复用构造期准备好的两态 Blitter，仅调整目标位置，避免每帧重建（§8.4）。
+            (accelShown ? accelMarkIcon : idleMarkIcon).copy().dest(markX, markY).blit(guiGraphics);
         }
     }
 

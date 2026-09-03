@@ -1,0 +1,17 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "pattern": [
+    " c ",
+    "cqc",
+    " c "
+  ],
+  "key": {
+    "c": { "item": "minecraft:clock" },
+    "q": { "item": "ae2:quartz_fixture" }
+  },
+  "result": {
+    "id": "torcherino_ae_mod:ae_torcherino",
+    "count": 1
+  }
+}

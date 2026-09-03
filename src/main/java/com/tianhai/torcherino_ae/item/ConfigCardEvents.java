@@ -4,8 +4,10 @@ import org.jetbrains.annotations.Nullable;
 
 import appeng.api.networking.IGridNode;
 import com.tianhai.torcherino_ae.Torcherinoaemod;
+import com.tianhai.torcherino_ae.api.DeviceId;
 import com.tianhai.torcherino_ae.block.ModBlocks;
-import com.tianhai.torcherino_ae.common.AE2GridSupport;
+import com.tianhai.torcherino_ae.network.DeviceScanner;
+import com.tianhai.torcherino_ae.util.DebugLog;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.ItemInteractionResult;
@@ -26,7 +28,7 @@ import net.neoforged.neoforge.event.entity.player.UseItemOnBlockEvent;
  *   <li>手持配置卡 Shift+右键本模组加速器：绑定 / 切换加速器（已绑定的再次右键 =
  *       取消绑定并清空设备列表）；</li>
  *   <li>手持已绑定加速器的配置卡右键可加速 AE 设备：绑定该设备（重复右键取消），
- *       目标判定复用 {@link AE2GridSupport#findAcceleratableNode}；</li>
+ *       目标判定复用 {@link DeviceScanner#findAcceleratableNode}；</li>
  *   <li>卡片未绑定加速器时右键设备：给出提示并拦截，避免误开设备界面。</li>
  * </ul>
  * 客户端与服务端返回相同结果、仅服务端修改数据，符合 NeoForge 事件约定。
@@ -46,7 +48,7 @@ public final class ConfigCardEvents {
             return;
         }
         ItemStack card = event.getItemStack();
-        if (!AcceleratorConfigCardItem.isConfigCard(card)) {
+        if (!ConfigCardData.isConfigCard(card)) {
             return;
         }
         Player player = event.getPlayer();
@@ -63,7 +65,7 @@ public final class ConfigCardEvents {
         }
 
         // 情形二：目标为可加速的 AE 设备（复用与加速脉冲一致的判定：含黑名单过滤、坐标解析）。
-        IGridNode node = AE2GridSupport.findAcceleratableNode(level.getBlockEntity(pos), null);
+        IGridNode node = DeviceScanner.findAcceleratableNode(level.getBlockEntity(pos), null);
         if (node == null) {
             // 目标既不是加速器也不是可加速设备：放行（不干扰正常放置/使用）。
             return;
@@ -88,7 +90,8 @@ public final class ConfigCardEvents {
             return;
         }
         if (!event.getLevel().isClientSide()) {
-            boolean bound = AcceleratorConfigCardItem.bindOrUnbindAccelerator(card, pos);
+            boolean bound = ConfigCardData.bindOrUnbindAccelerator(card,
+                    DeviceId.ofBlock(event.getLevel().dimension(), pos));
             if (bound) {
                 player.displayClientMessage(Component.translatable(
                         "item.torcherino_ae_mod.accelerator_config_card.bind_success",
@@ -97,7 +100,7 @@ public final class ConfigCardEvents {
                 player.displayClientMessage(Component.translatable(
                         "item.torcherino_ae_mod.accelerator_config_card.unbind_success"), true);
             }
-            Torcherinoaemod.LOGGER.info("[配置卡] 玩家 {} 对加速器 {} 执行绑定操作（bound={}）",
+            DebugLog.info("[配置卡] 玩家 {} 对加速器 {} 执行绑定操作（bound={}）",
                     player.getName().getString(), pos, bound);
         }
         // 客户端与服务端一致：拦截本次交互，不打开界面。
@@ -113,20 +116,21 @@ public final class ConfigCardEvents {
             return;
         }
         // 未绑定加速器的卡不能绑定设备：提示并拦截，避免误开目标设备界面。
-        if (AcceleratorConfigCardItem.getBoundAccelerator(card) == null) {
+        if (ConfigCardData.getBoundAccelerator(card) == null) {
             player.displayClientMessage(Component.translatable(
                     "item.torcherino_ae_mod.accelerator_config_card.not_bound_hint"), true);
             event.cancelWithResult(ItemInteractionResult.CONSUME);
             return;
         }
+        // 生成稳定设备标识（含维度与种类：方块=BLOCK_ENTITY，部件=PART），写入卡片 Data Component。
         @Nullable
-        String deviceId = AE2GridSupport.deviceIdOf(node.getOwner());
+        DeviceId deviceId = DeviceScanner.deviceIdOf(node.getOwner());
         if (deviceId == null) {
             event.cancelWithResult(ItemInteractionResult.CONSUME);
             return;
         }
-        boolean wasBound = AcceleratorConfigCardItem.isDeviceBound(card, deviceId);
-        boolean nowBound = AcceleratorConfigCardItem.toggleBoundDevice(card, deviceId);
+        boolean wasBound = ConfigCardData.isDeviceBound(card, deviceId);
+        boolean nowBound = ConfigCardData.toggleBoundDevice(card, deviceId);
         if (!wasBound && !nowBound) {
             player.displayClientMessage(Component.translatable(
                     "item.torcherino_ae_mod.accelerator_config_card.bind_device_fail"), true);
@@ -137,8 +141,8 @@ public final class ConfigCardEvents {
             player.displayClientMessage(Component.translatable(
                     "item.torcherino_ae_mod.accelerator_config_card.unbind_device_success"), true);
         }
-        Torcherinoaemod.LOGGER.info("[配置卡] 玩家 {} 对设备 {} 执行设备绑定操作（nowBound={}）",
-                player.getName().getString(), deviceId, nowBound);
+        DebugLog.info("[配置卡] 玩家 {} 对设备 {} 执行设备绑定操作（nowBound={}）",
+                player.getName().getString(), deviceId.stableKey(), nowBound);
         event.cancelWithResult(ItemInteractionResult.CONSUME);
     }
 }

@@ -2,17 +2,17 @@
   "type": "minecraft:crafting_shaped",
   "category": "misc",
   "pattern": [
-    "pEp",
-    "EsE",
-    "pEp"
+    "sMs",
+    "MtM",
+    "sMs"
   ],
   "key": {
-    "p": { "item": "ae2:logic_processor" },
-    "E": { "item": "ae2:energy_cell" },
-    "s": { "item": "ae2:speed_card" }
+    "s": { "item": "ae2:speed_card" },
+    "M": { "item": "ae2:molecular_assembler" },
+    "t": { "item": "torcherino_ae_mod:ae_torcherino" }
   },
   "result": {
-    "item": "torcherino_ae_mod:ae_accelerator",
+    "id": "torcherino_ae_mod:ae_accelerator",
     "count": 1
   }
 }

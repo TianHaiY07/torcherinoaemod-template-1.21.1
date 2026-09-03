@@ -1,0 +1,6 @@
+{
+  "parent": "minecraft:item/generated",
+  "textures": {
+    "layer0": "torcherino_ae_mod:item/ae_accelerator_up_card_iii"
+  }
+}

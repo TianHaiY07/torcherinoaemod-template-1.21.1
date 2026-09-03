@@ -16,4 +16,8 @@ public class ModBlocks {
     // AE 加速器方块：一块可插入升级卡的 AE2 机器。
     public static final DeferredBlock<AEAcceleratorBlock> AE_ACCELERATOR = BLOCKS.register("ae_accelerator",
             () -> new AEAcceleratorBlock(AEBaseBlock.metalProps()));
+
+    // AE 加速火把：独立范围扫描的加速方块（Torcherino 式），无碰撞体积、无升级卡。
+    public static final DeferredBlock<AETorcherinoBlock> AE_TORCHERINO = BLOCKS.register("ae_torcherino",
+            () -> new AETorcherinoBlock(AEBaseBlock.metalProps()));
 }

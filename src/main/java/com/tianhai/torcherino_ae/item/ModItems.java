@@ -19,7 +19,23 @@ public class ModItems {
     public static final DeferredItem<BlockItem> AE_ACCELERATOR = ITEMS.register("ae_accelerator",
             () -> new BlockItem(ModBlocks.AE_ACCELERATOR.get(), new Item.Properties()));
 
+    // AE 加速火把方块的物品形态。
+    public static final DeferredItem<BlockItem> AE_TORCHERINO = ITEMS.register("ae_torcherino",
+            () -> new BlockItem(ModBlocks.AE_TORCHERINO.get(), new Item.Properties()));
+
     // 加速器配置卡：绑定加速器及网络内的加速目标设备，放入加速器后自动启用加速。
     public static final DeferredItem<AcceleratorConfigCardItem> ACCELERATOR_CONFIG_CARD = ITEMS.register("accelerator_config_card",
             () -> new AcceleratorConfigCardItem(new Item.Properties()));
+
+    // 加速器升级卡 I：每插入一张，将基础加速倍数乘以 2（可重复插入）。
+    public static final DeferredItem<AcceleratorUpgradeCardItem> ACCELERATOR_UPGRADE_CARD_I = ITEMS.register("ae_accelerator_up_card_i",
+            () -> new AcceleratorUpgradeCardItem(new Item.Properties(), 2));
+
+    // 加速器升级卡 II：每插入一张，将基础加速倍数乘以 4（可重复插入）。
+    public static final DeferredItem<AcceleratorUpgradeCardItem> ACCELERATOR_UPGRADE_CARD_II = ITEMS.register("ae_accelerator_up_card_ii",
+            () -> new AcceleratorUpgradeCardItem(new Item.Properties(), 4));
+
+    // 加速器升级卡 III：每插入一张，将基础加速倍数乘以 8（可重复插入）。
+    public static final DeferredItem<AcceleratorUpgradeCardItem> ACCELERATOR_UPGRADE_CARD_III = ITEMS.register("ae_accelerator_up_card_iii",
+            () -> new AcceleratorUpgradeCardItem(new Item.Properties(), 8));
 }

@@ -38,4 +38,11 @@ public class ModBlockEntities {
                 Torcherinoaemod.LOGGER.info("[INIT] AE 加速器 ticker 已注入 (clientTick + serverTick)。");
                 return type;
             });
+
+    // AE 加速火把的方块实体。火把为普通方块实体（非 AE 网络方块），其服务器 ticker 由
+    // 方块 AETorcherinoBlock.getTicker 提供（客户端返回 null，无客户端 tick 需求）。
+    public static final DeferredHolder<BlockEntityType<?>, BlockEntityType<AETorcherinoBlockEntity>> AE_TORCHERINO =
+            BLOCK_ENTITY_TYPES.register("ae_torcherino", () -> BlockEntityType.Builder
+                    .of(AETorcherinoBlockEntity::create, ModBlocks.AE_TORCHERINO.get())
+                    .build(null));
 }

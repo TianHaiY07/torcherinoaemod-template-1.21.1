@@ -1,13 +1,16 @@
 package com.tianhai.torcherino_ae.client.render.pass;
 
 import com.mojang.blaze3d.vertex.PoseStack;
+import com.tianhai.torcherino_ae.api.DeviceId;
 import com.tianhai.torcherino_ae.client.render.RenderPass;
 import com.tianhai.torcherino_ae.client.render.util.CornerBracketRenderer;
-import com.tianhai.torcherino_ae.common.AE2GridSupport;
-import com.tianhai.torcherino_ae.item.AcceleratorConfigCardItem;
+import com.tianhai.torcherino_ae.config.RuntimeConfig;
+import com.tianhai.torcherino_ae.item.ConfigCardData;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
+import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.phys.Vec3;
 
@@ -34,11 +37,16 @@ public class ConfigCardHighlightPass implements RenderPass {
     // 高亮线框向外的膨胀量（格）。
     private static final double INFLATE = 0.03D;
 
-    // 是否启用无深度穿透通道（false 时仅画正常遮挡通道）。
+    // 是否启用无深度穿透通道（false 时仅画正常遮挡通道）；可作渲染级调试开关。
     public static boolean depthTestEnabled = true;
 
     @Override
     public boolean shouldRender(Minecraft mc) {
+        // 总开关（配置项 client.renderBracketHighlight，默认开）由 render 内复核，
+        // 使关闭时连 render 阶段都完全跳过绘制调用。
+        if (!RuntimeConfig.clientRenderBracketHighlight()) {
+            return false;
+        }
         if (mc.player == null) {
             return false;
         }
@@ -57,16 +65,19 @@ public class ConfigCardHighlightPass implements RenderPass {
         }
         Vec3 eye = mc.player.getEyePosition(partialTick);
 
+        // 只高亮「当前维度」的绑定目标：设备标识含维度，其他维度的目标不应在本世界绘制。
+        ResourceKey<Level> currentDimension = mc.level.dimension();
+
         // 绑定的加速器：蓝色角括号。
-        BlockPos acceleratorPos = AcceleratorConfigCardItem.getBoundAccelerator(card);
-        if (acceleratorPos != null && mc.level.hasChunkAt(acceleratorPos)) {
-            drawBracket(alloc, poseStack, acceleratorPos, COLOR_ACCELERATOR, eye);
+        DeviceId acceleratorId = ConfigCardData.getBoundAccelerator(card);
+        if (acceleratorId != null && acceleratorId.dimension().equals(currentDimension)
+                && mc.level.hasChunkAt(acceleratorId.pos())) {
+            drawBracket(alloc, poseStack, acceleratorId.pos(), COLOR_ACCELERATOR, eye);
         }
         // 绑定的设备：逐个画绿色角括号（数量受卡片上限约束，开销可控）。
-        for (String deviceId : AcceleratorConfigCardItem.getBoundDevices(card)) {
-            BlockPos devicePos = AE2GridSupport.resolveDeviceIdPos(deviceId);
-            if (devicePos != null && mc.level.hasChunkAt(devicePos)) {
-                drawBracket(alloc, poseStack, devicePos, COLOR_DEVICE, eye);
+        for (DeviceId deviceId : ConfigCardData.getBoundDevices(card)) {
+            if (deviceId.dimension().equals(currentDimension) && mc.level.hasChunkAt(deviceId.pos())) {
+                drawBracket(alloc, poseStack, deviceId.pos(), COLOR_DEVICE, eye);
             }
         }
     }
@@ -76,11 +87,11 @@ public class ConfigCardHighlightPass implements RenderPass {
      */
     private static ItemStack heldConfigCard(Player player) {
         ItemStack mainHand = player.getMainHandItem();
-        if (AcceleratorConfigCardItem.isConfigCard(mainHand)) {
+        if (ConfigCardData.isConfigCard(mainHand)) {
             return mainHand;
         }
         ItemStack offHand = player.getOffhandItem();
-        return AcceleratorConfigCardItem.isConfigCard(offHand) ? offHand : ItemStack.EMPTY;
+        return ConfigCardData.isConfigCard(offHand) ? offHand : ItemStack.EMPTY;
     }
 
     /**

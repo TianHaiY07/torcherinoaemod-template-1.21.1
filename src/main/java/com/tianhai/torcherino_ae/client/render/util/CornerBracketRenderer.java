@@ -1,5 +1,7 @@
 package com.tianhai.torcherino_ae.client.render.util;
 
+import org.jetbrains.annotations.Nullable;
+
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 
@@ -103,20 +105,51 @@ public final class CornerBracketRenderer {
     }
 
     /**
-     * 关键几何：把一条线段渲染成「两端方帽 + 六面柱体」共 6 个四边形（四方体）。
-     * 方向 n、法向量 u（选最小分量轴向构造）+ 切向量 v = u × n，
-     * 端点沿 n 延长 t（方帽）、横截面为 u/v 方向的 ±t 方框，构成一根粗「方块线段」。
+     * 把一条线段渲染成「两端方帽 + 六面柱体」共 6 个四边形（四方体）。
+     * <p>
+     * 几何计算已下沉到纯函数 {@link #computeSegmentQuads}（渲染路径只负责把顶点
+     * 喂给通道），退化线段（长度或横截面不可构造）由纯函数返回 null 表达。
      */
     private static void drawSegment(VertexConsumer consumer, PoseStack poseStack,
             double x1, double y1, double z1,
             double x2, double y2, double z2,
             float r, float g, float b, float a, double t) {
+        double[] quads = computeSegmentQuads(x1, y1, z1, x2, y2, z2, t);
+        if (quads == null) {
+            return;
+        }
+        for (int q = 0; q < 6; q++) {
+            int i = q * 12;
+            quad(consumer, poseStack,
+                    quads[i], quads[i + 1], quads[i + 2],
+                    quads[i + 3], quads[i + 4], quads[i + 5],
+                    quads[i + 6], quads[i + 7], quads[i + 8],
+                    quads[i + 9], quads[i + 10], quads[i + 11],
+                    r, g, b, a);
+        }
+    }
+
+    /**
+     * 粗线段几何的纯计算（§10.2）：无任何渲染对象依赖，可直接 JVM 单测。
+     * <p>
+     * 方向 n、法向量 u（取分量最小轴向构造，再归一化）+ 切向量 v = u × n；
+     * 两端沿 n 各延长 t 形成方帽，横截面为 u/v 方向的 ±t 方框。
+     * <p>
+     * 返回数组按提交顺序排列 6 个四边形（起点端面 / 终点端面 / 4 个侧面），
+     * 每四边形 4 顶点 × 3 分量。该顺序与 {@link #drawSegment} 的顶点提交顺序一一对应，
+     * 修改排布必须同步两处（或回归 CornerBracketRendererTest）。
+     *
+     * @return 长度 72 的 {@code double[]}（6 × 4 × 3）；线段退化（长度过短、无法构造横截面）时返回 null
+     */
+    @Nullable
+    public static double[] computeSegmentQuads(double x1, double y1, double z1,
+            double x2, double y2, double z2, double t) {
         double dx = x2 - x1;
         double dy = y2 - y1;
         double dz = z2 - z1;
         double len = Math.sqrt(dx * dx + dy * dy + dz * dz);
         if (len < 1.0e-4) {
-            return;
+            return null;
         }
 
         // 单位方向 n。
@@ -144,7 +177,7 @@ public final class CornerBracketRenderer {
         }
         double uLen = Math.sqrt(ux * ux + uy * uy + uz * uz);
         if (uLen < 1.0e-8) {
-            return;
+            return null;
         }
         ux /= uLen;
         uy /= uLen;
@@ -167,12 +200,34 @@ public final class CornerBracketRenderer {
         double e3x = ex - ux * t - vx * t, e3y = ey - uy * t - vy * t, e3z = ez - uz * t - vz * t;
         double e4x = ex - ux * t + vx * t, e4y = ey - uy * t + vy * t, e4z = ez - uz * t + vz * t;
 
-        // 6 个四边形：起点端面 / 终点端面 / 4 个侧面。
-        quad(consumer, poseStack, s1x, s1y, s1z, s2x, s2y, s2z, s3x, s3y, s3z, s4x, s4y, s4z, r, g, b, a);
-        quad(consumer, poseStack, e4x, e4y, e4z, e3x, e3y, e3z, e2x, e2y, e2z, e1x, e1y, e1z, r, g, b, a);
-        quad(consumer, poseStack, s1x, s1y, s1z, e1x, e1y, e1z, e2x, e2y, e2z, s2x, s2y, s2z, r, g, b, a);
-        quad(consumer, poseStack, s2x, s2y, s2z, e2x, e2y, e2z, e3x, e3y, e3z, s3x, s3y, s3z, r, g, b, a);
-        quad(consumer, poseStack, s3x, s3y, s3z, e3x, e3y, e3z, e4x, e4y, e4z, s4x, s4y, s4z, r, g, b, a);
-        quad(consumer, poseStack, s4x, s4y, s4z, e4x, e4y, e4z, e1x, e1y, e1z, s1x, s1y, s1z, r, g, b, a);
+        // 排布顺序与 drawSegment 提交顺序一致：起点端面 / 终点端面 / 4 个侧面。
+        double[] quads = new double[72];
+        putQuad(quads, 0, s1x, s1y, s1z, s2x, s2y, s2z, s3x, s3y, s3z, s4x, s4y, s4z);
+        putQuad(quads, 12, e4x, e4y, e4z, e3x, e3y, e3z, e2x, e2y, e2z, e1x, e1y, e1z);
+        putQuad(quads, 24, s1x, s1y, s1z, e1x, e1y, e1z, e2x, e2y, e2z, s2x, s2y, s2z);
+        putQuad(quads, 36, s2x, s2y, s2z, e2x, e2y, e2z, e3x, e3y, e3z, s3x, s3y, s3z);
+        putQuad(quads, 48, s3x, s3y, s3z, e3x, e3y, e3z, e4x, e4y, e4z, s4x, s4y, s4z);
+        putQuad(quads, 60, s4x, s4y, s4z, e4x, e4y, e4z, e1x, e1y, e1z, s1x, s1y, s1z);
+        return quads;
+    }
+
+    /** 把 4 个三维顶点写入数组的连续 12 个分量（供 {@link #computeSegmentQuads} 排布）。 */
+    private static void putQuad(double[] out, int o,
+            double x1, double y1, double z1,
+            double x2, double y2, double z2,
+            double x3, double y3, double z3,
+            double x4, double y4, double z4) {
+        out[o] = x1;
+        out[o + 1] = y1;
+        out[o + 2] = z1;
+        out[o + 3] = x2;
+        out[o + 4] = y2;
+        out[o + 5] = z2;
+        out[o + 6] = x3;
+        out[o + 7] = y3;
+        out[o + 8] = z3;
+        out[o + 9] = x4;
+        out[o + 10] = y4;
+        out[o + 11] = z4;
     }
 }

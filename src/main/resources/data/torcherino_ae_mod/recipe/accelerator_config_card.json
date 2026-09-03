@@ -1,0 +1,12 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "category": "misc",
+  "ingredients": [
+    { "item": "ae2:basic_card" },
+    { "item": "ae2:fluix_crystal" }
+  ],
+  "result": {
+    "id": "torcherino_ae_mod:accelerator_config_card",
+    "count": 1
+  }
+}

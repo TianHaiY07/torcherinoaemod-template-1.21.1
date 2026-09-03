@@ -1,0 +1,16 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "pattern": [
+    "sss",
+    "sss",
+    "sss"
+  ],
+  "key": {
+    "s": { "item": "torcherino_ae_mod:ae_accelerator_up_card_i" }
+  },
+  "result": {
+    "id": "torcherino_ae_mod:ae_accelerator_up_card_ii",
+    "count": 1
+  }
+}

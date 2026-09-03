@@ -1,4 +1,8 @@
-package com.tianhai.torcherino_ae.menu;
+package com.tianhai.torcherino_ae.client.screen;
+import com.tianhai.torcherino_ae.client.widget.DeviceConfigPopup;
+import com.tianhai.torcherino_ae.client.widget.DeviceListWidget;
+import com.tianhai.torcherino_ae.menu.AEAcceleratorMenu;
+import com.tianhai.torcherino_ae.menu.DeviceEntry;
 
 import appeng.client.Point;
 import appeng.client.gui.AEBaseScreen;
@@ -154,9 +158,9 @@ public class AEAcceleratorScreen extends AEBaseScreen<AEAcceleratorMenu> {
         } else if (working) {
             long acceleratedCount = menu.devices.devices().stream().filter(DeviceEntry::accelerated).count();
             if (acceleratedCount > 0) {
-                // 正在加速中：显示被加速设备数量与当前最高加速倍数。
+                // 正在加速中：显示被加速设备数量与当前最高加速倍数（取菜单同步值，随升级卡实时变化）。
                 status = Component.translatable("gui." + Torcherinoaemod.MOD_ID + ".ae_accelerator.accel_status",
-                        acceleratedCount, host.getAccelMultiplier());
+                        acceleratedCount, menu.getMaxMultiplier());
             } else {
                 // 在线、有设备、正在工作但尚未选中任何设备：提示点击列表开始加速。
                 status = Component.translatable("gui." + Torcherinoaemod.MOD_ID + ".ae_accelerator.accel_hint");

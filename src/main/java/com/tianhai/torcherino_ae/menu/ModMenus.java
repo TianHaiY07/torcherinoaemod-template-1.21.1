@@ -22,4 +22,8 @@ public class ModMenus {
     // AE 加速器菜单类型。通过 buildUnregistered 创建后放入注册表，避免重复注册。
     public static final DeferredHolder<MenuType<?>, MenuType<AEAcceleratorMenu>> AE_ACCELERATOR =
             MENUS.register("ae_accelerator", () -> AEAcceleratorMenu.TYPE);
+
+    // AE 加速火把菜单类型。
+    public static final DeferredHolder<MenuType<?>, MenuType<AETorcherinoMenu>> AE_TORCHERINO =
+            MENUS.register("ae_torcherino", () -> AETorcherinoMenu.TYPE);
 }
