@@ -28,7 +28,7 @@ public final class ModDataComponents {
     }
 
     /**
-     * 注册并返回自定义DataComponentType（保留类型参数便于直接用于 ItemStack 读写）。
+     * 注册并返回自定义 DataComponentType（保留类型参数，便于直接用于 ItemStack 读写）。
      */
     private static <T> DataComponentType<T> register(String name, Consumer<DataComponentType.Builder<T>> customizer) {
         var builder = DataComponentType.<T>builder();

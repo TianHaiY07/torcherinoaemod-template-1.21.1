@@ -19,7 +19,7 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.level.Level;
 
 /**
- * 配置卡数据契约 {@link ConfigCardData} 中可脱离运行时直测的部分（§10.2）。
+ * 配置卡数据契约 {@link ConfigCardData} 中可脱离运行时直测的部分。
  * <p>
  * 覆盖 {@code CODEC} 的 NBT 编解码往返（含未绑定加速器的空数据）与
  * {@code of(...)} 对设备列表的稳定排序。物品栈交互类方法（绑定/解绑、

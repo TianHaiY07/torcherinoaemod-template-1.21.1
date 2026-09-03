@@ -20,7 +20,7 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.level.Level;
 
 /**
- * 加速目标登记表 {@link TargetRegistry} 的纯逻辑单测（§10.1）。
+ * 加速目标登记表 {@link TargetRegistry} 的纯逻辑单测。
  * <p>
  * 覆盖核心语义：按来源精确撤销（配置卡取出不误伤玩家手动设置）、来源覆盖优先级、
  * 倍数 <=1 视为取消、集合视图一致性，以及经 NBT 的存档往返（save/load）。
@@ -87,7 +87,7 @@ class TargetRegistryTest {
 
     @Test
     void 玩家显式设置覆盖卡来源后卡撤销不影响() {
-        // 契约（P1 偏差 11）：「玩家 GUI 显式设置优先」。卡注入之后玩家再次勾选同一设备，
+        // 契约：「玩家 GUI 显式设置优先」。卡注入之后玩家再次勾选同一设备，
         // 该记录来源被覆盖为 PLAYER；此时取出配置卡不应撤销它。
         TargetRegistry registry = new TargetRegistry();
         DeviceId id = block(3, 3, 3);

@@ -23,7 +23,7 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 
 /**
- * 加速器配置卡绑定协调组件（P2 拆分自 {@link AEAcceleratorBlockEntity}）。
+ * 加速器配置卡在方块实体上的绑定协调组件。
  * <p>
  * 封装配置卡在方块实体上的<b>全部</b>生命周期职责：
  * <ul>
@@ -33,9 +33,9 @@ import net.minecraft.world.level.Level;
  *   <li>库存的 NBT 持久化。</li>
  * </ul>
  * 卡来源（{@link AccelSource#CONFIG_CARD}）的注入结果随方块实体的 {@link TargetRegistry}
- * 持久化，重启后取出配置卡仍可精确撤销（P1 修复的旧缺陷）。
+ * 持久化（来源标记随档保存），重启后取出配置卡仍能精确撤销注入。
  * <p>
- * 依赖关系只回指方块实体（同包协作）：网格经 {@link AEAcceleratorBlockEntity#grid()}、
+ * 依赖关系只回指所属方块实体（同包协作）：网格经 {@link AEAcceleratorBlockEntity#grid()}、
  * 登记表经同包字段 {@code targetRegistry}、保存与缓存标脏经方块实体委托方法。
  */
 public final class ConfigCardBinding {
@@ -102,8 +102,8 @@ public final class ConfigCardBinding {
      * 卡来源，默认按最高倍数——「卡在则加速」。卡片取出、更换、绑定数据变化或网格接入
      * 变化时重新同步，把不再有效的卡来源设备撤销——「卡走则停」。
      * <p>
-     * P1 起卡来源的注入<b>随方块实体持久化</b>（登记表带来源标记存 NBT），彻底修复了
-     * 旧实现「注入结果写进持久化集合而来源信息只存内存，重启后取出配置卡无法撤销」的缺陷。
+     * 卡来源的注入随登记表<b>持久化</b>（带来源标记存 NBT），因此重启后取出配置卡
+     * 依然能按来源精确撤销，不会留下无法撤销的永久加速。
      * <p>
      * 玩家通过 GUI 显式设置（PLAYER 来源）的设备不受卡同步覆盖，玩家设置优先。
      *

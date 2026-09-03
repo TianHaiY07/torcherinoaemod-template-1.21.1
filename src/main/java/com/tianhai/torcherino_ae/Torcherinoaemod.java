@@ -31,16 +31,16 @@ import org.slf4j.Logger;
  * 负责注册所有的 DeferredRegister 容器，并在 commonSetup 阶段完成方块实体与方块、
  * 升级卡关联等运行时初始化。
  */
-// The value here should match an entry in the META-INF/neoforge.mods.toml file
+// 此处值必须与 META-INF/neoforge.mods.toml 中的 mod id 条目一致。
 @Mod(Torcherinoaemod.MOD_ID)
 public class Torcherinoaemod {
-    // Define mod id in a common place for everything to reference
+    // 集中定义 MOD_ID，供全项目各处统一引用。
     public static final String MOD_ID = "torcherino_ae_mod";
-    // Directly reference a slf4j logger
+    // 直接引用 slf4j 日志器。
     public static final Logger LOGGER = LogUtils.getLogger();
 
-    // The constructor for the mod class is the first code that is run when your mod is loaded.
-    // FML will recognize some parameter types like IEventBus or ModContainer and pass them in automatically.
+    // 模组类构造器是模组加载后最先执行的代码；FML 会自动识别 IEventBus、ModContainer
+    // 等参数类型并注入。
     public Torcherinoaemod(IEventBus modEventBus, ModContainer modContainer) {
         // 注册所有 DeferredRegister 容器到模组事件总线
         ModBlocks.BLOCKS.register(modEventBus);
@@ -50,10 +50,10 @@ public class Torcherinoaemod {
         ModCreativeTabs.CREATIVE_MODE_TABS.register(modEventBus);
         ModMenus.MENUS.register(modEventBus);
 
-        // 注册配置：默认值 = 现网行为基线（见 config/ConfigDefaults）。
+        // 注册配置（默认值定义见 config/ConfigDefaults）。
         // 注意：registerConfig 只是「排队」，配置文件由 FML 在 mod 构造完成后统一加载，
         // 构造器内不可读取 ConfigValue（会抛 "Cannot get config value before config is loaded"）。
-        // 因此这里不做 RuntimeConfig.refresh*——字段初值即 ConfigDefaults 基线，配置真正
+        // 因此这里不做 RuntimeConfig.refresh*——字段初值即 ConfigDefaults 默认值，配置真正
         // 加载/重载后由下方 ModConfigEvent.Loading / Reloading 处理器（applyConfig）刷新。
         modContainer.registerConfig(net.neoforged.fml.config.ModConfig.Type.SERVER, ModConfig.SERVER_SPEC);
         if (FMLEnvironment.dist.isClient()) {
@@ -63,9 +63,9 @@ public class Torcherinoaemod {
         modEventBus.addListener(Torcherinoaemod::onConfigLoading);
         modEventBus.addListener(Torcherinoaemod::onConfigReloading);
 
-        // Register the commonSetup method for modloading
+        // 注册 commonSetup 阶段处理器（mod 加载阶段执行）。
         modEventBus.addListener(this::commonSetup);
-        // Register the capability listener for modloading
+        // 注册能力（capability）注册事件处理器。
         modEventBus.addListener(Torcherinoaemod::registerCapabilities);
     }
 
@@ -116,12 +116,12 @@ public class Torcherinoaemod {
         Upgrades.add(ModItems.ACCELERATOR_UPGRADE_CARD_III.get(), ModBlocks.AE_ACCELERATOR.get(),
                 AEAcceleratorBlockEntity.UPGRADE_SLOTS);
 
-        // 注意：ticker 已在 ModBlockEntities 注册阶段注入（与 AE2 官方方块一致）。
-        // 不在此处再次调用 setBlockEntity(...) —— 之前在 commonSetup 里手动注入时
-        // 由于 AEBaseEntityBlock.setBlockEntity 的签名为 (class, type, clientTicker, serverTicker)，
-        // 误把 serverTicker 传到了 clientTicker 位置导致服务端 ticker 为 null，
-        // 原版区块 tick 循环因而不会调用 commonTick()，加速从未生效。
-        // （FMLCommonSetupEvent 晚于 RegisterEvent 阶段，会覆盖注册阶段注入的 ticker。）
+        // 注意：ticker 已在 ModBlockEntities 注册阶段随方块实体注册一起注入（与 AE2 官方
+        // 方块实体一致），此处不要再调用 AEBaseEntityBlock.setBlockEntity(...) 重复注入：
+        // 其一，该方法的四参签名为 (class, type, clientTicker, serverTicker)，顺序极易传错，
+        // 把 serverTicker 放到 clientTicker 位会导致服务端 ticker 为 null、区块 tick 循环
+        // 不调用 commonTick()（加速与状态更新全部失效）；
+        // 其二，FMLCommonSetupEvent 晚于 RegisterEvent，会覆盖注册阶段注入的 ticker。
 
         // 登记方块实体的代表物品（用于掉落/展示等）。
         AEBaseBlockEntity.registerBlockEntityItem(ModBlockEntities.AE_ACCELERATOR.get(), ModItems.AE_ACCELERATOR.get());

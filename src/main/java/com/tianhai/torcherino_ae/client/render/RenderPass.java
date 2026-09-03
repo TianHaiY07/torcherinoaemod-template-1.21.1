@@ -5,7 +5,7 @@ import com.mojang.blaze3d.vertex.VertexConsumer;
 import net.minecraft.client.Minecraft;
 
 /**
- * 客户端世界渲染 pass 接口（移植自 RTSBuilding 的 RenderPass 设计，保留最小必要通道）。
+ * 客户端世界渲染 pass 接口（保留最小必要的缓冲通道）。
  * <p>
  * 用于在渲染关卡时把自定义线框叠加到场景中：每个 pass 声明自己需要哪些顶点缓冲通道，
  * 由 {@link ConfigCardRenderPipeline} 在 {@code RenderLevelStageEvent} 中构造
@@ -33,8 +33,8 @@ public interface RenderPass {
     void render(Minecraft mc, BufferAllocator alloc, PoseStack poseStack, float partialTick, int frameIndex);
 
     /**
-     * 声明该 pass 所需的缓冲位（位标志：4=角括号 brackets、8=无深度 noDepth），
-     * 与参考实现一致，当前仅作声明性信息，便于后续优化/诊断。
+     * 声明该 pass 所需的缓冲位（位标志：4=角括号 brackets、8=无深度 noDepth）。
+     * 当前仅作声明性信息，便于后续优化/诊断。
      */
     default int requiredBuffers() {
         return 0;

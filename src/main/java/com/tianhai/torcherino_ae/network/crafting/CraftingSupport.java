@@ -16,13 +16,11 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.entity.BlockEntity;
 
 /**
- * 合成体系辅助（P2 拆分自 common/AE2GridSupport，迁入 network/crafting 子层）。
- * <p>
- * 集中管理与「合成 CPU / 合成执行机器」相关的全部逻辑，是全项目唯一接触 AE2 内部实现类
- * {@link CraftingCPUCluster}（CPU 结构坐标读取）的地方：
+ * 合成体系辅助：集中管理与「合成 CPU / 合成执行机器」相关的全部逻辑，
+ * 是全项目唯一接触 AE2 内部实现类 {@link CraftingCPUCluster}（CPU 结构坐标读取）的地方：
  * <ul>
  *   <li>CPU 设备标识生成（{@link #cpuDeviceId}，供登记表与 GUI 载荷使用）；</li>
- *   <li>CPU 条目坐标读取（{@link #asCpuCluster}，强转隔离在单一文件内）；</li>
+ *   <li>CPU 条目坐标读取（{@link #asCpuCluster}，强转访问隔离在本文件内）；</li>
  *   <li>合成执行机器三级判定（{@link #isCraftingMachineType}：接口 / 能力 / 类型兜底）。</li>
  * </ul>
  */
@@ -36,10 +34,8 @@ public final class CraftingSupport {
      * <p>
      * 合成 CPU 是多块巨型结构，AE2 用 {@link ICraftingCPU}（实际实现为
      * {@link CraftingCPUCluster}）表示，其核心身份是整块结构的包围盒（bounds）。
-     * 这里以结构最小角坐标（boundsMin）为坐标，种类标记为 {@link DeviceKind#CRAFTING_CPU}。
-     * <p>
-     * 旧实现用 {@code "cpu:"} 字符串前缀区分语义，改由 {@link DeviceId} 的种类字段承载，
-     * 判定不再依赖字符串约定。
+     * 这里以结构最小角坐标（boundsMin）为坐标，种类标记为 {@link DeviceKind#CRAFTING_CPU}；
+     * CPU 与普通设备共用同一键空间，靠种类字段区分，不依赖字符串前缀约定。
      *
      * @param dimension CPU 所在维度（AE2 的 CPU 接口不暴露维度，由调用方提供）
      * @return 能解析出结构的 CPU 返回稳定标识，否则返回 {@code null}

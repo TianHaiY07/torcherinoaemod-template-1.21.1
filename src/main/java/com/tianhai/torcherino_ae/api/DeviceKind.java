@@ -3,10 +3,8 @@ package com.tianhai.torcherino_ae.api;
 import com.mojang.serialization.Codec;
 
 /**
- * 设备种类：决定 {@link DeviceId} 的标识构成方式与后续解析路径。
- * <p>
- * 取代旧实现以字符串前缀（{@code "cpu:"}）区分语义的做法，让「这是台什么设备」
- * 成为显式字段，由类型系统保证而不是靠约定。
+ * 设备种类：决定 {@link DeviceId} 的标识构成方式与后续解析路径，
+ * 使「这台设备属于哪一类」成为显式字段，而不是靠字符串前缀之类的约定。
  */
 public enum DeviceKind {
 

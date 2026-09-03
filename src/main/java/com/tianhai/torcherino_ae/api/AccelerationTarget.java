@@ -5,11 +5,9 @@ import appeng.api.networking.IGridNode;
 import appeng.api.networking.ticking.IGridTickable;
 
 /**
- * 已解析的加速目标：在缓存重建期一次性解析好身份、网格节点与网格 tick 服务，
- * 使每 tick 的脉冲路径无需再做任何查找、强转或服务查询。
- * <p>
- * 这是「每 tick 路径不遍历网格」这条性能铁律的载体——重建期把重活干完，
- * 脉冲期只做纯粹的调用。
+ * 已解析的加速目标：在缓存重建期把「身份 / 网格节点 / 网格 tick 服务」一次性
+ * 解析到位，脉冲期直接使用。每 tick 的加速路径因此不需要再做任何查找、强转
+ * 或服务查询，只对已解析好的节点发起调用。
  */
 public record AccelerationTarget(DeviceId id, IGridNode node, IGridTickable tickable) {
 

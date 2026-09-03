@@ -19,10 +19,10 @@ import com.tianhai.torcherino_ae.menu.AETorcherinoMenu;
  * 滑块视觉复用 {@code device_entry_gui.png} 的轨道槽与手柄素材（见
  * {@link SettingSliderWidget}）。滑块拖动/滚轮/点击实时通过客户端动作把新值发送到服务端。
  * <p>
- * P3 配置化：各滑块的范围上限不再取方块实体静态常量，而是读取菜单中经 {@code @GuiSync}
- * 同步的服务端配置值（{@code AETorcherinoMenu.maxSpeed/maxXzRange/maxYRange}，
- * 即 {@code torcherino.maxSpeed/maxXzRange/maxYRange}）；滑块每 tick 刷新上限，
- * 配置变更后开新界面即生效。
+ * 各滑块的范围上限取菜单中经 {@code @GuiSync} 同步的服务端配置值
+ * （{@code AETorcherinoMenu.maxSpeed/maxXzRange/maxYRange}，对应服务端配置
+ * {@code torcherino.maxSpeed/maxXzRange/maxYRange}）；滑块每 tick 刷新上限，
+ * 配置变更后新开的界面即生效。
  * <p>
  * 界面不使用 AE 垂直工具栏（参考 {@code SkyChestScreen}，样式未定义 verticalToolbar，
  * 不关闭会崩溃）。

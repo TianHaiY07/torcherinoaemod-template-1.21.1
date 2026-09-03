@@ -16,14 +16,12 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.entity.BlockEntity;
 
 /**
- * 网格设备扫描器：集中管理「哪些网格宿主是可加速设备」的判定与设备身份解析
- * （P2 拆分自 common/AE2GridSupport，原类改名并迁入 network 包，过滤逻辑原样保留）。
- * <p>
- * 供三类消费者复用，避免把筛选谓词散落到各处：
+ * 网格设备扫描器：集中管理「哪些网格宿主是可加速设备」的判定与设备身份解析，
+ * 供多处消费者复用，避免把筛选谓词散落到各处：
  * <ul>
- *   <li>方块实体的目标缓存重建（{@code rebuildTargets}）；</li>
+ *   <li>加速源方块实体的目标缓存重建（{@code rebuildTargets}）；</li>
  *   <li>配置卡注入的网格内设备判定（{@code ConfigCardBinding}）；</li>
- *   <li>菜单的设备列表采集与手持配置卡右键的设备判定。</li>
+ *   <li>加速器菜单的设备列表采集与手持配置卡右键的设备判定。</li>
  * </ul>
  */
 public final class DeviceScanner {
@@ -37,10 +35,9 @@ public final class DeviceScanner {
      * 虽然实现 {@link IGridTickable} 的设备都能被 tick 管理器催促，但存储总线、能量元件、
      * P2P 隧道等网络基础设施没有实际工作可加速，应从可加速设备中排除。
      * <p>
-     * P3 配置化：黑名单由配置项 {@code grid.acceleratableBlacklist} 提供（全限定类名，
-     * 默认即原「存储总线/P2P 隧道/能量元件」三件套，见 {@link ConfigDefaults}），
-     * 解析结果经 {@link RuntimeConfig#acceleratableBlacklist()} 在启动/重载时取用；
-     * 未来新增基础设施只需在配置文件中增补，无需改代码。
+     * 黑名单由服务端配置项 {@code grid.acceleratableBlacklist} 提供（全限定类名），
+     * 解析结果经 {@link RuntimeConfig#acceleratableBlacklist()} 读取；今后要排除新的
+     * 基础设施类型只需在配置文件中增补条目，无需改代码。
      */
     public static boolean isAcceleratableMachine(@Nullable Object owner) {
         if (owner == null) {
@@ -132,8 +129,8 @@ public final class DeviceScanner {
      * 该标识作为加速器目标登记表（{@code core.TargetRegistry}）、每设备独立倍数
      * 以及 GUI 点击载荷的身份键，贯穿 NBT 持久化。
      * <p>
-     * <b>维度字段是必要的</b>：旧实现仅用 {@code BlockPos.asLong()}，跨维度同坐标的两个
-     * 方块会被判定为同一台设备，配置卡也因此会在维度之间误绑定。
+     * 标识必须带维度：若仅用 {@code BlockPos.asLong()}，跨维度同坐标的两个方块会被
+     * 判定为同一台设备，配置卡也会因此在维度之间误绑定。
      *
      * @return 能识别出坐标与维度的宿主返回稳定标识，否则返回 {@code null}
      */

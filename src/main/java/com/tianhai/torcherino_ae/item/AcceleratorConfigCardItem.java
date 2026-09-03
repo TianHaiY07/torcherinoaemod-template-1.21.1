@@ -20,9 +20,8 @@ import net.minecraft.world.item.TooltipFlag;
  * 该加速器，右键网络内可加速设备即可把设备写入卡片（重复右键取消绑定）；
  * 将卡片放入加速器的配置卡槽后，加速器自动按卡片记录对设备启用加速，无需 GUI 勾选。
  * <p>
- * P2 分层后本类退化为纯粹的<b>物品壳</b>：绑定数据的读写静态方法已全部下沉到数据契约
- * {@link ConfigCardData}（本类原先的静态方法名保持不变地移至那里），服务端逻辑与客户端
- * 渲染只依赖 {@link ConfigCardData}；本类仅剩物品语义（注册与 tooltip）。
+ * 本类只承载「物品」语义（注册与 tooltip）；绑定数据的 Data Component 读写全部走
+ * 数据契约 {@link ConfigCardData}，服务端逻辑与客户端渲染也只依赖该数据契约。
  */
 public class AcceleratorConfigCardItem extends Item {
 

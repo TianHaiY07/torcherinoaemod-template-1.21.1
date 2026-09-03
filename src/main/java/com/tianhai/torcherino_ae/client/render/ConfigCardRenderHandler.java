@@ -15,7 +15,6 @@ import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
  * 在 {@code RenderLevelStageEvent} 的 {@code AFTER_TRANSLUCENT_BLOCKS} 阶段
  * （世界不透明/透明几何渲染完成、深度缓冲含世界内容之后）把相机位置平移到
  * PoseStack 原点，然后驱动 {@link ConfigCardRenderPipeline} 渲染各 pass。
- * 与参考实现（RTSBuilding ClientRenderHandler）的调用链保持一致。
  */
 @EventBusSubscriber(modid = Torcherinoaemod.MOD_ID, value = Dist.CLIENT)
 public final class ConfigCardRenderHandler {
@@ -39,8 +38,8 @@ public final class ConfigCardRenderHandler {
             return;
         }
         PoseStack poseStack = event.getPoseStack();
-        // 持牌相机：用 event.getCamera() 的位置把 PoseStack 原点「平移」到相机处，
-        // 此后所有 pass 直接以世界坐标提交顶点即可（参考实现同款做法）。
+        // 用相机位置把 PoseStack 原点「平移」到相机处，
+        // 此后各 pass 直接以世界坐标提交顶点即可。
         Vec3 cameraPos = event.getCamera().getPosition();
         poseStack.pushPose();
         poseStack.translate(-cameraPos.x, -cameraPos.y, -cameraPos.z);

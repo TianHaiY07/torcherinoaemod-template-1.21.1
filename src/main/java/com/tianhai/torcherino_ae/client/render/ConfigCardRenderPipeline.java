@@ -16,10 +16,10 @@ import net.minecraft.client.renderer.RenderStateShard;
 import net.minecraft.client.renderer.RenderType;
 
 /**
- * 配置卡高亮渲染管线（移植自 RTSBuilding 的 RenderPipeline 最小实现）。
+ * 配置卡高亮渲染管线。
  * <p>
  * 持有本模组所有世界内渲染 pass，并在 {@code RenderLevelStageEvent} 中被每帧驱动：
- * 先重置各通道缓冲，用链式方式依次渲染各 pass，最后按通道顺序统一 flush
+ * 先重置各通道缓冲，按注册顺序依次渲染各 pass，最后按通道顺序统一 flush
  * （{@code RenderType.draw(MeshData)}）。缓冲采用 {@code ByteBufferBuilder + BufferBuilder}
  * 组织，初始容量不足时自动扩容。
  */
@@ -33,7 +33,7 @@ public final class ConfigCardRenderPipeline {
 
     /**
      * 单通道缓冲：ByteBufferBuilder 支撑 + BufferBuilder 顶点写入 + 对应渲染类型。
-     * 参照参考实现，sizeKB 用常量 1024KB 初始分配，超量时 ByteBufferBuilder 自动扩容。
+     * 初始分配 1024KB，超量时 ByteBufferBuilder 自动扩容。
      */
     private static final class Buf {
         final ByteBufferBuilder backing;
@@ -71,7 +71,7 @@ public final class ConfigCardRenderPipeline {
     }
 
     /**
-     * 注册渲染 pass（后续新增 pass 时在此追加，与参考实现一致）。
+     * 注册渲染 pass（新增渲染内容时在此追加）。
      */
     public void registerPass(RenderPass pass) {
         this.passes.add(pass);

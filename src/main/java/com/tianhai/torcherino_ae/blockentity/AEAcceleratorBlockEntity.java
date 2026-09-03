@@ -57,17 +57,17 @@ import net.minecraft.world.level.block.state.BlockState;
  * 实现 {@link IUpgradeableObject} 以支持升级卡插槽，实现 {@link CommonTickingBlockEntity} 以做周期性工作。
  * 只有当方块接入并激活 AE 网络、且能从网络提取到足够能量时才会工作。
  * <p>
- * P1/P2 重构后本类退化为<b>协调者</b>（原 ~880 行 God 类已拆分）：
+ * 职责划分：
  * <ul>
- *   <li><b>加速领域逻辑</b>（脉冲、倍率、能耗、目标缓存、登记表）→ {@code core} 包
- *       （{@link AccelerationEngine} / {@link MultiplierCalculator} / {@link PowerModel} /
- *       {@link TargetCache} / {@link TargetRegistry}），本类实现 {@link IAccelerationSource}
- *       只回答「加速谁、每台多少倍、现在能不能工作」；</li>
+ *   <li><b>加速领域逻辑</b>：本类以 {@link IAccelerationSource} 身份接入统一的
+ *       {@link AccelerationEngine} 脉冲执行（倍率见 {@link MultiplierCalculator}、
+ *       能耗见 {@link PowerModel}、目标缓存见 {@link TargetCache}、
+ *       加速登记表见 {@link TargetRegistry}），只回答「加速谁、每台多少倍、能否工作」；</li>
  *   <li><b>配置卡绑定协调</b>（库存、注入/撤销、移除清理、持久化）→ {@link ConfigCardBinding}；</li>
- *   <li><b>本类保留</b>：AE 网络生命周期（节点事件 / 供能 / 库存回调等必须 override 的钩子）、
+ *   <li><b>网络与状态</b>：AE 网络生命周期（节点事件 / 供能 / 库存回调等必须 override 的钩子）、
  *       online/working 状态同步（经 writeToStream/readFromStream 驱动模型）与网络诊断。</li>
  * </ul>
- * 未安装升级卡时最高加速 4x（基础倍率与各档系数均可由配置调整，默认等同现网数值）；
+ * 未安装升级卡时最高加速 4x（基础倍率与各档系数均可由配置调整，默认分别为 4 / 2 / 4 / 8）；
  * 每插入一张升级卡（I=×2、II=×4、III=×8）会以复合累乘的方式放大基础倍数：
  * 4 × 2^I × 4^II × 8^III（公式见 {@link MultiplierCalculator}）。
  * 只有注册了网格 tick 服务（{@link IGridTickable}）且处于激活状态的 AE 设备才能被加速。
@@ -95,7 +95,6 @@ public class AEAcceleratorBlockEntity extends AENetworkedPoweredBlockEntity
     private final ConfigCardBinding configCardBinding;
 
     // 加速目标登记表：谁被加速、每台多少倍、由谁设置（玩家 / 配置卡），随 NBT 持久化。
-    // 取代重构前的 acceleratedDevices + deviceMultipliers + configCardDevices 三份状态。
     // 可见性为包内默认：同包协作类 ConfigCardBinding 需要做卡来源的注入/撤销。
     final TargetRegistry targetRegistry = new TargetRegistry();
 
@@ -210,7 +209,7 @@ public class AEAcceleratorBlockEntity extends AENetworkedPoweredBlockEntity
     @Override
     public BudgetMeter budget() {
         // 预算上限由配置 budget.tickCallsPerSource 提供（默认 -1 不限）。
-        // 计器实例被缓存：仅当配置值变化时才重建，避免每个 tick 分配对象。
+        // 计量器实例被缓存：仅当配置值变化时才重建，避免每个 tick 分配对象。
         int limit = RuntimeConfig.budgetTickCallsPerSource();
         if (limit != budgetLimitTicks) {
             budgetLimitTicks = limit;
@@ -309,7 +308,7 @@ public class AEAcceleratorBlockEntity extends AENetworkedPoweredBlockEntity
      * 独立的，由 {@link #getDeviceMultiplier(DeviceId)} 返回，可通过界面中的横向滚动条调整。
      */
     public int getAccelMultiplier() {
-        // 基础倍率与三档系数从配置读取（RuntimeConfig 快照），默认即现网数值。
+        // 基础倍率与三档系数从配置读取（RuntimeConfig 快照）。
         int result = MultiplierCalculator.compute(
                 RuntimeConfig.accelBaseMultiplier(),
                 RuntimeConfig.accelCardFactor(0), RuntimeConfig.accelCardFactor(1),
@@ -326,8 +325,7 @@ public class AEAcceleratorBlockEntity extends AENetworkedPoweredBlockEntity
      * 依据已安装的升级卡数量与被登记的设备数量计算每 tick 能量消耗。
      * <p>
      * 能耗按「三种升级卡数量之和」线性叠加，与倍数的复合累乘无关——升级卡越多，
-     * 机器维持加速所需的能量越高。被加速设备数按登记表规模计（玩家勾选 + 配置卡注入），
-     * 与重构前的选中集合规模一致。
+     * 机器维持加速所需的能量越高。被加速设备数按登记表规模计（玩家勾选 + 配置卡注入）。
      */
     private double getRequiredPowerPerTick() {
         int upgradeCards = upgrades.getInstalledUpgrades(ModItems.ACCELERATOR_UPGRADE_CARD_I.get())
@@ -455,7 +453,7 @@ public class AEAcceleratorBlockEntity extends AENetworkedPoweredBlockEntity
     // ========================= 加速目标管理（供菜单调用） =========================
 
     /**
-     * 目标登记表版本号（每变更一次 +1）：供菜单判断「设备列表缓存」是否失效（§8.4）。
+     * 目标登记表版本号（每变更一次 +1）：供菜单判断「设备列表缓存」是否失效。
      * <p>
      * 玩家勾选 / 调倍数 / 配置卡注入或取出 / 加载存档都会使登记表内容变化，进而使设备列表的
      * 「加速中」标记与倍率过期；版本号变化时菜单才会重建并重新下发列表。
@@ -545,8 +543,7 @@ public class AEAcceleratorBlockEntity extends AENetworkedPoweredBlockEntity
         super.saveAdditional(data, registries);
         // 持久化配置卡库存内容（由绑定组件负责），重启后保留玩家放入的配置卡。
         configCardBinding.save(data, registries);
-        // 持久化加速目标登记表（含来源），重启后保留玩家设置与卡注入，且可精确撤销。
-        // 旧存档格式（accelerated_devices / device_multipliers）已断档，加载时自动忽略。
+        // 持久化加速目标登记表（含来源标记），重启后保留玩家设置与卡注入，且可精确撤销。
         targetRegistry.save(data, registries);
     }
 

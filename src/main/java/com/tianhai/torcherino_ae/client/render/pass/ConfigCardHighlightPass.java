@@ -15,16 +15,15 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.phys.Vec3;
 
 /**
- * 配置卡手持高亮渲染 pass（移植自 RTSBuilding 的 EntitySelectHighlightPass）。
+ * 配置卡手持高亮渲染 pass。
  * <p>
  * 玩家手持「加速器配置卡」时：
  * <ul>
  *   <li>卡绑定的加速器以<b>蓝色</b>角括号高亮；</li>
  *   <li>卡绑定的设备以<b>绿色</b>角括号高亮。</li>
  * </ul>
- * 采用深浅双通道画法（参考参考实现 EntitySelectHighlightPass）：同一 AABB 先画
- * {@code brackets}（LEQUAL 深度，正常遮挡、高透明度），再画 {@code noDepth}
- * （NO_DEPTH_TEST 穿透、低透明度），隔墙也隐约可见。
+ * 采用深浅双通道画法：同一 AABB 先画 {@code brackets}（LEQUAL 深度，正常遮挡、
+ * 高透明度），再画 {@code noDepth}（NO_DEPTH_TEST 穿透、低透明度），隔墙也隐约可见。
  */
 public class ConfigCardHighlightPass implements RenderPass {
 
@@ -122,7 +121,7 @@ public class ConfigCardHighlightPass implements RenderPass {
 
     @Override
     public int requiredBuffers() {
-        // 4=brackets、8=noDepth，与参考实现 EntitySelectHighlightPass 一致。
+        // 位标志：4=brackets、8=noDepth（本 pass 两个通道都要用）。
         return 4 | 8;
     }
 }

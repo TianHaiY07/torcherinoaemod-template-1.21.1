@@ -38,15 +38,14 @@ import net.minecraft.world.level.block.state.BlockState;
  * 并以配置的倍数（{@code speed}，上限见配置 {@code torcherino.maxSpeed}，默认 4x）加速。
  * 火把可同时加速区域内、即使属于不同 AE 网络的设备。
  * <p>
- * P1 重构后本类退化为纯粹的「加速源」（{@link IAccelerationSource}）：加速执行细节
- * （催促、多次 {@code tickingRequest}、睡眠判断、失效剔除）已收敛到 {@link AccelerationEngine}，
- * 目标缓存统一由 {@link TargetCache} 支撑。与 AE 加速器的差异仅体现在两处：
- * 本类覆盖区域内的设备（而非 AE 网格节点），且所有目标使用统一的全局倍率。
+ * 本类以「加速源」（{@link IAccelerationSource}）接入加速体系：加速执行细节
+ * （催促、多次 {@code tickingRequest}、睡眠判断、失效剔除）统一由 {@link AccelerationEngine}
+ * 完成，目标缓存由 {@link TargetCache} 支撑。与 AE 加速器的差异仅有两处：
+ * 扫描区域内的设备（而非 AE 网格节点），且所有目标使用统一的全局倍率。
  * <p>
- * P3 配置化：速度/范围上限不再写死为类常量，改由服务端配置
- * {@code torcherino.maxSpeed / maxXzRange / maxYRange} 提供（默认即原 4/8/4），
- * 方块实体在每次 clamp 与存档加载时读取 {@link RuntimeConfig} 当前值；
- * 菜单把「上限」同步到客户端 UI 作为滑块范围。
+ * 速度与范围上限由服务端配置 {@code torcherino.maxSpeed / maxXzRange / maxYRange}
+ * 提供（默认 4/8/4），方块实体在 clamp 与存档加载时读取 {@link RuntimeConfig} 当前值；
+ * 菜单把这些上限经 {@code @GuiSync} 同步到客户端，作为滑块的可调范围。
  * <p>
  * 性能：目标设备缓存避免每 tick 全区域扫描，仅在范围/倍数变化、设备失效或达到配置的重建周期时重建。
  */
@@ -100,8 +99,8 @@ public class AETorcherinoBlockEntity extends BlockEntity implements IAcceleratio
         if (level.isClientSide()) {
             return;
         }
-        // 整个加速行为收敛到 AccelerationEngine：源未激活（倍数 <=1 或范围为空）时不加速；
-        // 有设备被加速才标记工作状态，与重构前行为一致。
+        // 整个加速行为由 AccelerationEngine 驱动：源未激活（倍数 <=1 或范围为空）时不加速；
+        // 本 tick 确实有设备被加速时才标记工作状态。
         AccelerationResult result = AccelerationEngine.pulse(this);
         setWorking(result.didWork());
     }
@@ -163,7 +162,7 @@ public class AETorcherinoBlockEntity extends BlockEntity implements IAcceleratio
     @Override
     public BudgetMeter budget() {
         // 预算上限由配置 budget.tickCallsPerSource 提供（默认 -1 不限）。
-        // 计器实例被缓存：仅当配置值变化时才重建，避免每个 tick 分配对象。
+        // 计量器实例被缓存：仅当配置值变化时才重建，避免每个 tick 分配对象。
         int limit = RuntimeConfig.budgetTickCallsPerSource();
         if (limit != budgetLimitTicks) {
             budgetLimitTicks = limit;
@@ -252,7 +251,7 @@ public class AETorcherinoBlockEntity extends BlockEntity implements IAcceleratio
     }
 
     /**
-     * 当前加速倍数（1x~4x）。1 表示不产生额外加速。
+     * 当前加速倍数（1x～配置上限）。1 表示不产生额外加速。
      */
     public int getSpeed() {
         return speed;

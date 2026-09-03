@@ -11,7 +11,7 @@ import java.util.Set;
 import org.junit.jupiter.api.Test;
 
 /**
- * 角括号线框渲染的顶点数学单测（§10.2）。
+ * 角括号线框渲染的顶点数学单测。
  * <p>
  * 覆盖从 {@link CornerBracketRenderer#computeSegmentQuads} 抽取出的纯几何：
  * 沿 X / Y 轴向线段的方帽与横截面尺寸、退化线段返回 null、任意方向线段的

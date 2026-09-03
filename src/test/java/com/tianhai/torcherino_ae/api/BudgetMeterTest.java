@@ -8,10 +8,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import org.junit.jupiter.api.Test;
 
 /**
- * 每 tick 调用预算 {@link BudgetMeter} 的纯逻辑单测（§10.1）。
+ * 每 tick 调用预算 {@link BudgetMeter} 的纯逻辑单测。
  * <p>
- * 覆盖：预算封顶后按余量发放与早退、跨 tick 重置、{@code -1} 表示不限
- * （默认即不限，保证现网行为零变更）、零额度边界。不依赖 Minecraft 运行时。
+ * 覆盖：预算封顶后按余量发放与早退、跨 tick 重置、{@code -1} 表示不限额度、
+ * 零额度边界。不依赖 Minecraft 运行时。
  */
 class BudgetMeterTest {
 

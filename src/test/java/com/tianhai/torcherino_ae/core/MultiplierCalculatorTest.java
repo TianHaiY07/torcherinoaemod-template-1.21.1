@@ -5,10 +5,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import org.junit.jupiter.api.Test;
 
 /**
- * 加速倍率公式的纯逻辑单测（§10.1）。
+ * 加速倍率公式的纯逻辑单测。
  * <p>
  * 覆盖默认公式 {@code 4 × 2^I × 4^II × 8^III} 的各档组合、零卡基线、
- * 带参重载（配置化后调用方传入实际系数）与 int 溢出钳制。
+ * 带参重载（调用方传入实际系数）与 int 溢出钳制。
  * 本类不依赖 Minecraft 运行时，可直接在 JVM 中执行。
  */
 class MultiplierCalculatorTest {
@@ -44,8 +44,8 @@ class MultiplierCalculatorTest {
     }
 
     @Test
-    void 四张III型卡即旧版最高档() {
-        // 4 × 8^4 = 16384（旧实现 4 张 III 卡满配的经典值）。
+    void 四张III型卡满配达到最高倍率() {
+        // 4 × 8^4 = 16384（4 张 III 卡全插的经典满配值）。
         assertEquals(16384, MultiplierCalculator.compute(0, 0, 4));
     }
 
@@ -63,8 +63,8 @@ class MultiplierCalculatorTest {
 
     @Test
     void 巨大基数也不返回负数() {
-        // 系数均为 100_000 时幂次增长极快；long 累积后即便发生高位截断，
-        // Math.min 也能保证结果不为负（本用例防回归：早期实现曾溢出为负）。
+        // 系数均为 100_000 时幂次增长极快；中间量经 long 累积后即便发生高位截断，
+        // 最终钳制也能保证结果不为负（防溢出回归）。
         int result = MultiplierCalculator.compute(100_000, 100_000, 100_000, 100_000, 3, 3, 3);
         assertEquals(Integer.MAX_VALUE, result);
     }

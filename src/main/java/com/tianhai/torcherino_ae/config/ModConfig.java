@@ -10,8 +10,7 @@ import net.neoforged.neoforge.common.ModConfigSpec;
  * <p>
  * 分为服务端段（{@link Server}，含加速器/能耗/缓存/网格类型表等全部可调数值）与
  * 客户端段（{@link Client}，渲染与列表缓存开关）。默认值一律取自 {@link ConfigDefaults}，
- * 单一事实来源，保持「默认值 = 现网行为基线」。实际生效值经 {@link RuntimeConfig}
- * 的快照缓存被各逻辑层读取（加载/重载事件刷新）。
+ * 实际生效值经 {@link RuntimeConfig} 的快照缓存被各逻辑层读取（加载/重载事件刷新）。
  * <p>
  * 配置文件的即时读取顺序：`registerConfig`（构造器，仅排队）→ FML 构造完成后统一加载
  * 配置文件 → `ModConfigEvent.Loading` / `Reloading`（每次加载/重载）把当前值刷入
@@ -58,7 +57,7 @@ public final class ModConfig {
 
         Server(ModConfigSpec.Builder builder) {
             // 加速器
-            builder.comment(" 加速器基础数值：默认值即原版行为基线，修改仅对新建存档/重载后的网格生效。")
+            builder.comment(" 加速器基础数值：默认值即模组默认行为，修改经配置重载后对新生效的网格生效。")
                     .push("accelerator");
             this.acceleratorBaseMultiplier = builder
                     .comment(" 无升级卡时的基础加速倍率（升级卡在此基础上累乘）。")

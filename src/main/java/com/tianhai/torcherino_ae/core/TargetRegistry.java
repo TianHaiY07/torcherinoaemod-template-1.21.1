@@ -20,23 +20,17 @@ import net.minecraft.nbt.NbtOps;
 import net.minecraft.nbt.Tag;
 
 /**
- * 加速目标登记表：全局唯一的「谁被加速、多少倍、谁设置的」状态表。
+ * 加速目标登记表：加速器的「谁被加速、多少倍、由谁设置」的唯一状态表。
  * <p>
- * 旧实现用三个集合分别维护状态，彼此在重启与换卡场景下会失去同步：
+ * 玩家 GUI 勾选与配置卡注入的登记统一收进本表，来源标记随条目持久化到 NBT，
+ * 使「撤销」在任何时序（含服务器重启后）都精确可靠。语义约定：
  * <ul>
- *   <li>{@code acceleratedDevices}（持久化）：混入配置卡注入结果，无法区分来源；</li>
- *   <li>{@code deviceMultipliers}（持久化，与上面靠数组下标隐式对齐）：每台设备的独立倍数；</li>
- *   <li>{@code configCardDevices}（<b>仅内存</b>）：卡注入来源集合。</li>
+ *   <li>每条 {@link DeviceId} 只保留一份设置，后写入的来源覆盖先写入的
+ *       （玩家在 GUI 显式设置优先于配置卡注入）；</li>
+ *   <li>撤销按 {@link AccelSource} 精确过滤：取出配置卡只清除卡注入的记录，
+ *       不误伤玩家手动勾选的设备；</li>
+ *   <li>修改操作递增 {@link #version()}，供服务端菜单判断设备列表缓存是否失效。</li>
  * </ul>
- * 由此产生的真实缺陷：卡注入的结果写进了会持久化的选中集合，而来源集合不持久化，
- * 服务器重启后取出配置卡时无法撤销注入，设备被永久加速。
- * <p>
- * 这里合并为一张带来源标记的表，撤销时按 {@link AccelSource} 精确过滤，
- * 契约在任何时序（含重启后）都成立。
- * <p>
- * 每条 {@link DeviceId} 只保留一份设置；后写入的来源覆盖先写入的（玩家 GUI 显式设置
- * 优先于配置卡注入，取出卡片不会误伤玩家手动勾选的设备）。撤销按来源精确清除，
- * 「玩家勾选与卡注入重叠时，任一方取消即停止」的旧行为在同来源场景下保持不变。
  */
 public final class TargetRegistry {
 
@@ -44,7 +38,7 @@ public final class TargetRegistry {
     private static final String TAG_TARGETS = "targets";
 
     // 变更版本号：每次修改操作（set/remove/clear/clearBySource/load）都会递增。
-    // 供服务端菜单判断设备列表缓存是否失效（§8.4），避免稳态下每采集周期全量重建。
+    // 菜单持有时对比该版本号判断登记表是否变化，未变则复用已采集的设备列表。
     private int version;
 
     /**
@@ -54,9 +48,8 @@ public final class TargetRegistry {
     }
 
     /**
-     * NBT 条目：一个设备标识 + 倍数 + 来源，三者自包含。
-     * <p>
-     * 取代旧实现「{@code ListTag<String>} + {@code int[]} 靠下标隐式对齐」的脆弱格式。
+     * NBT 条目：一个设备标识 + 倍数 + 来源，三者自包含地存在同一条目，
+     * 来源因此随档持久化——重启后按来源撤销依然成立。
      */
     private record Entry(DeviceId id, int multiplier, AccelSource source) {
 
@@ -168,8 +161,8 @@ public final class TargetRegistry {
     }
 
     /**
-     * 读取 NBT。旧存档格式（{@code accelerated_devices} / {@code device_multipliers}）
-     * 已断档不再兼容，加载时直接忽略，加速配置清空。
+     * 读取 NBT：无 {@code targets} 列表时直接以空表启动；
+     * 更早版本存档中的旧键名不再兼容，加载时忽略并清空加速配置。
      */
     public void load(CompoundTag tag, HolderLookup.Provider registries) {
         settings.clear();

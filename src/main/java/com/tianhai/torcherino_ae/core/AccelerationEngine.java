@@ -14,11 +14,11 @@ import appeng.api.networking.ticking.ITickManager;
 import appeng.api.networking.ticking.TickRateModulation;
 
 /**
- * 加速脉冲执行器：全局唯一的「让 AE2 设备加速」实现。
+ * 加速脉冲执行器：全项目唯一的「让 AE2 设备加速」实现。
  * <p>
- * 重构前 AE 加速器与 AE 加速火把各维护一份几乎相同的方法
- * （{@code alertDevice} + N 次 {@code tickingRequest} + 睡眠判断 + 缓存失效处理），
- * 这里收敛为单一实现，两个方块实体只通过 {@link IAccelerationSource} 提供目标与倍率。
+ * AE 加速器与 AE 加速火把两类加速源只通过 {@link IAccelerationSource} 暴露
+ * 目标与倍率，本类统一完成催促、多次调用、睡眠早退与预算扣减，保证它们
+ * 行为一致、实现只有一份。
  * <p>
  * 每台目标的执行顺序：
  * <ol>
@@ -31,7 +31,7 @@ import appeng.api.networking.ticking.TickRateModulation;
  *       {@code tickingRequest}，每次检查返回值，设备转为 {@code SLEEP} 立即停止该设备。</li>
  * </ol>
  * <p>
- * <b>性能铁律</b>：本方法位于每 tick 路径上，禁止分配对象、禁止字符串拼接、
+ * <b>性能约束</b>：本方法位于每 tick 路径上，禁止分配对象、禁止字符串拼接、
  * 禁止日志输出、禁止遍历 {@code grid.getNodes()}。
  */
 public final class AccelerationEngine {

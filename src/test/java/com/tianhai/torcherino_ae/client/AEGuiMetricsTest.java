@@ -6,7 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import org.junit.jupiter.api.Test;
 
 /**
- * 界面布局度量一致性测试（§10.2）。
+ * 界面布局度量一致性测试。
  * <p>
  * 这些数值与 GUI 贴图强耦合（轨道、手柄、状态图标都取自贴图素材），改贴图后若不同步
  * 修改度量会算错位。本测试把「布局不变量」固化下来，防止无意识错位：

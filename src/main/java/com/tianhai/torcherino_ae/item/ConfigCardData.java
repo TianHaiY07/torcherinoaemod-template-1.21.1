@@ -27,15 +27,13 @@ import net.minecraft.world.item.ItemStack;
  *   <li>{@code devices}：绑定的设备标识列表，复用 {@code DeviceScanner.deviceIdOf}
  *       生成的稳定标识。</li>
  * </ul>
- * 旧版本用 {@code long acceleratorPos}（{@code BlockPos.asLong()}）存储加速器位置，
- * <b>不含维度</b>：玩家在其它维度同坐标放置加速器时会被误判为同一台，导致配置卡
- * 跨维度误绑定、并把设备注入到错误的加速器上。改用 {@link DeviceId} 后天然隔离。
+ * 绑定的加速器与设备都使用<b>含维度</b>的 {@link DeviceId} 存储，跨维度同坐标的方块
+ * 不会被误认成同一台，配置卡不会跨维度误绑定。
  * <p>
- * <b>包方向约定（P2）</b>：本类是配置卡数据的<b>纯数据契约</b>，集中管理绑定数据的
- * 全部读写静态方法（Data Component 的存取）；客户端渲染层（如配置卡高亮 pass）与
- * 服务端逻辑层都只依赖本数据类，不再触碰物品类 {@link AcceleratorConfigCardItem}
- * （后者仅剩「物品」语义：注册、tooltip）。这样一来渲染层与逻辑层都不会因为物品类
- * 上的交互方法而被反向牵制。
+ * 本类是配置卡数据的<b>纯数据契约</b>：Data Component 的全部读写静态方法集中于此。
+ * 客户端渲染层（如配置卡高亮 pass）与服务端逻辑层都只依赖本数据类，不触碰物品类
+ * {@link AcceleratorConfigCardItem}（后者仅剩「物品」语义：注册、tooltip），
+ * 避免渲染/逻辑层被物品类上的交互方法反向牵制。
  */
 public record ConfigCardData(DeviceId accelerator, List<DeviceId> devices) {
 

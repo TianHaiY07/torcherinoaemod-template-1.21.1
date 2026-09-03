@@ -12,13 +12,9 @@ import net.minecraft.world.level.Level;
 /**
  * 加速源契约：任何能够驱动 AE2 设备加速的对象（AE 加速器、AE 加速火把）都实现本接口。
  * <p>
- * 旧实现中两个方块实体各自维护一份几乎相同的脉冲方法（催促 + 多次 {@code tickingRequest}
- * + 睡眠判断 + 缓存失效），改一处忘一处就会行为漂移。这里把职责重新划分：
- * <ul>
- *   <li><b>源</b>只回答三个问题：加速谁、每台多少倍、现在能不能工作；</li>
- *   <li><b>引擎</b>（{@code core.AccelerationEngine}）负责执行：催促、多次触发、
- *       返回值早退、预算扣减、失效剔除——全局只有这一份实现。</li>
- * </ul>
+ * 接口只声明源自身的特征——加速谁、每台多少倍、当前能否工作；实际执行由
+ * {@link com.tianhai.torcherino_ae.core.AccelerationEngine} 统一驱动（催促、多次触发、
+ * 睡眠早退、预算扣减、失效剔除），保证两类加速源行为一致、只维护一份实现。
  */
 public interface IAccelerationSource {
 

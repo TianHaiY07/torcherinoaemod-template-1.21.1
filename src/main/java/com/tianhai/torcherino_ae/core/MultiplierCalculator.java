@@ -3,17 +3,17 @@ package com.tianhai.torcherino_ae.core;
 import com.tianhai.torcherino_ae.config.ConfigDefaults;
 
 /**
- * 加速倍率计算。
+ * 加速倍率计算：按升级卡库存复合累乘基础倍率。
  * <p>
- * 公式与重构前完全一致：{@code 基础倍率 × 系数I^I卡数 × 系数II^II卡数 × 系数III^III卡数}，
+ * 公式：{@code 基础倍率 × 系数I^I卡数 × 系数II^II卡数 × 系数III^III卡数}，
  * 默认 {@code 4 × 2^I × 4^II × 8^III}。结果钳制到 {@code int} 上限防止溢出。
  * <p>
- * 本类不依赖 Minecraft 运行时，可直接单测；也刻意不依赖升级卡物品本身
- * （保持 {@code core} 层不反向依赖 {@code item}），调用方负责把库存换算成各档卡片数量。
+ * 本类不依赖 Minecraft 运行时，可直接单测；也刻意不依赖升级卡物品本身，
+ * 调用方负责把方块实体的升级卡库存换算成各档卡片数量后传入。
  * <p>
- * P3 配置化后，运行时生效的基数与系数由调用方经 {@code RuntimeConfig} 读取并传入
- * 带参 {@link #compute(int, int, int, int, int, int, int)}；以下 {@code DEFAULT_*} 常量
- * 收口到 {@link ConfigDefaults}（单一事实来源），仅用于默认便捷重载与单测基准。
+ * 运行时生效的基数与系数由调用方经 {@code RuntimeConfig} 读取并传入带参
+ * {@link #compute(int, int, int, int, int, int, int)}；以下 {@code DEFAULT_*} 常量
+ * 引用 {@link ConfigDefaults}，仅用于默认便捷重载与单测基准。
  */
 public final class MultiplierCalculator {
 

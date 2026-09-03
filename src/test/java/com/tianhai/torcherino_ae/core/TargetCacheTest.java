@@ -10,7 +10,7 @@ import org.junit.jupiter.api.Test;
 import com.tianhai.torcherino_ae.api.AccelerationTarget;
 
 /**
- * 泛型目标缓存 {@link TargetCache} 的纯逻辑单测（§10.1）。
+ * 泛型目标缓存 {@link TargetCache} 的纯逻辑单测。
  * <p>
  * 覆盖：首次访问立即构建、{@code markDirty} 后下一次访问立即重建、到达重建周期
  * 后自动重建。目标元素只作不透明载荷（此处允许 null 占位），缓存逻辑本身不触碰

@@ -47,7 +47,7 @@ import com.tianhai.torcherino_ae.config.RuntimeConfig;
  *   <li>加速状态展示（正在被加速的设备行持续铺高亮背景、文字保持默认色；
  *       每行行尾绘制状态图标，未加速与加速中分别取贴图两张小图标）</li>
  * </ul>
- * 注意：列表区域高度为行高(AEGuiMetrics.AEGuiMetrics.ROW_HEIGHT)的整数倍，宽度由样式 JSON 决定；
+ * 注意：列表区域高度为行高（{@link AEGuiMetrics#ROW_HEIGHT}）的整数倍，宽度由样式 JSON 决定；
  * 控件只绘制完整行，不依赖 {@link GuiGraphics#enableScissor 裁剪}——与 AE 终端网格的做法一致，
  * 避免 scissor 在不同 GUI Scale 下的坐标换算异常导致列表内容丢失。
  */
@@ -76,7 +76,7 @@ public class DeviceListWidget implements ICompositeWidget {
     // 搜索过滤关键字（空串表示不过滤）。由搜索文本框的回调设置。
     private String filter = "";
 
-    // 过滤结果缓存（§8.4）：getFilteredDevices 在 updateBeforeRender / hitTestDevice /
+    // 过滤结果缓存：getFilteredDevices 在 updateBeforeRender / hitTestDevice /
     // drawBackgroundLayer / getTooltip 每帧被调用多次，只在「过滤关键字」或「源列表引用
     // （menu.devices 经网络更新会换新 List）」变化时重算，避免每帧全列表遍历 +
     // toLowerCase + 坐标字符串拼接。缓存列表仅供读取，控件不修改其中的元素。
@@ -85,7 +85,7 @@ public class DeviceListWidget implements ICompositeWidget {
     private String cachedFilterKey = "";
 
     // 行尾状态图标 Blitter：构造期一次性准备「未加速 / 加速中」两态，
-    // 绘制时仅 copy() 复用，避免每帧重建 Blitter 链（§8.4）。
+    // 绘制时仅 copy() 复用，避免每帧重建 Blitter 链。
     private final Blitter idleMarkIcon;
     private final Blitter accelMarkIcon;
 
@@ -158,8 +158,8 @@ public class DeviceListWidget implements ICompositeWidget {
     /**
      * 返回经过搜索过滤的设备列表。
      * <p>
-     * 默认带缓存：仅当「过滤关键字」或「源列表引用」变化时才重新过滤（§8.4）。
-     * 客户端配置 {@code client.cacheFilteredList} 可回退为旧的即时过滤。调用方只读不修改
+     * 默认带缓存：仅当「过滤关键字」或「源列表引用」变化时才重新过滤，
+     * 也可由客户端配置 {@code client.cacheFilteredList} 关闭为即时过滤。调用方只读不修改
      * 返回值；源列表引用由 {@code @GuiSync} 网络更新产生的新 DeviceList 驱动。
      */
     private List<DeviceEntry> getFilteredDevices() {
@@ -387,7 +387,7 @@ public class DeviceListWidget implements ICompositeWidget {
             // 垂直居中；仅加速中形式图标下移 1px 与未加速图标对齐视觉效果。
             int markY = rowY + (AEGuiMetrics.ROW_HEIGHT - markHeight) / 2
                     + (accelShown ? AEGuiMetrics.MARK_Y_ACCEL_SHIFT : 0);
-            // 复用构造期准备好的两态 Blitter，仅调整目标位置，避免每帧重建（§8.4）。
+            // 复用构造期准备好的两态 Blitter，仅调整目标位置，避免每帧重建。
             (accelShown ? accelMarkIcon : idleMarkIcon).copy().dest(markX, markY).blit(guiGraphics);
         }
     }

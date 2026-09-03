@@ -6,7 +6,7 @@ import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 
 /**
- * 角括号线框渲染器（移植自 RTSBuilding 的 CornerBracketRenderer）。
+ * 角括号线框渲染器。
  * <p>
  * 把 AABB 轮廓渲染成 12 条带厚度的「块状」粗线段（顶部水平环 + 底部水平环 + 4 条垂直棱），
  * 线条厚度随距离自适应（距相机 16 格内厚度不变，超出后线性增大），称为「角括号」。
@@ -107,8 +107,8 @@ public final class CornerBracketRenderer {
     /**
      * 把一条线段渲染成「两端方帽 + 六面柱体」共 6 个四边形（四方体）。
      * <p>
-     * 几何计算已下沉到纯函数 {@link #computeSegmentQuads}（渲染路径只负责把顶点
-     * 喂给通道），退化线段（长度或横截面不可构造）由纯函数返回 null 表达。
+     * 几何计算集中在纯函数 {@link #computeSegmentQuads}，本方法只负责把顶点
+     * 喂给渲染通道；退化线段（长度或横截面不可构造）由纯函数返回 null 表达。
      */
     private static void drawSegment(VertexConsumer consumer, PoseStack poseStack,
             double x1, double y1, double z1,
@@ -130,14 +130,14 @@ public final class CornerBracketRenderer {
     }
 
     /**
-     * 粗线段几何的纯计算（§10.2）：无任何渲染对象依赖，可直接 JVM 单测。
+     * 粗线段几何的纯计算：无任何渲染对象依赖，可直接 JVM 单测。
      * <p>
      * 方向 n、法向量 u（取分量最小轴向构造，再归一化）+ 切向量 v = u × n；
      * 两端沿 n 各延长 t 形成方帽，横截面为 u/v 方向的 ±t 方框。
      * <p>
      * 返回数组按提交顺序排列 6 个四边形（起点端面 / 终点端面 / 4 个侧面），
      * 每四边形 4 顶点 × 3 分量。该顺序与 {@link #drawSegment} 的顶点提交顺序一一对应，
-     * 修改排布必须同步两处（或回归 CornerBracketRendererTest）。
+     * 由 CornerBracketRendererTest 固化，修改排布需同步更新测试。
      *
      * @return 长度 72 的 {@code double[]}（6 × 4 × 3）；线段退化（长度过短、无法构造横截面）时返回 null
      */

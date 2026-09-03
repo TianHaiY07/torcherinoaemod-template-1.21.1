@@ -5,10 +5,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import org.junit.jupiter.api.Test;
 
 /**
- * 加速器能耗模型的纯逻辑单测（§10.1）。
+ * 加速器能耗模型的纯逻辑单测。
  * <p>
  * 覆盖默认线性公式 {@code 1.0 + 卡数 × 0.5 + 设备数 × 0.5}、零卡零设备边界
- * 与带参重载（配置化后调用方传入实际系数）。不依赖 Minecraft 运行时。
+ * 与带参重载（调用方传入实际系数）。不依赖 Minecraft 运行时。
  */
 class PowerModelTest {
 
@@ -34,7 +34,7 @@ class PowerModelTest {
 
     @Test
     void 能耗与实际倍率脱钩() {
-        // 设备数相同、倍率不同时耗能相同（既有设计的回归保护：能耗仅与「台数」挂钩）。
+        // 设计要点回归：能耗只与「台数」挂钩，与倍率高低无关。
         // 两台被加速设备无论倍率高低都只按台数计费：1.0 + 0×0.5 + 2×0.5 = 2.0。
         assertEquals(2.0, PowerModel.requiredPerTick(0, 2), DELTA);
     }

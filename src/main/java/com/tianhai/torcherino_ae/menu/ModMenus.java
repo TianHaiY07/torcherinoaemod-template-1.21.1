@@ -11,8 +11,9 @@ import net.neoforged.neoforge.registries.DeferredHolder;
 import net.neoforged.neoforge.registries.DeferredRegister;
 
 /**
- * 菜单注册容器。
- * 使用 AE2 的 {@link MenuTypeBuilder} 构建升级卡机器的菜单类型，并注册到游戏注册表。
+ * 菜单注册容器：把 AE 加速器与 AE 加速火把两个菜单类型注册进游戏注册表。
+ * 菜单类型常量在各菜单类中经 AE2 的 {@link MenuTypeBuilder} 预构建（仅创建未注册），
+ * 本类统一把它们放入注册表。
  */
 public class ModMenus {
     // 菜单类型注册表，命名空间为本模组 modId。

@@ -12,12 +12,12 @@ import org.slf4j.LoggerFactory;
  * <p>
  * 逻辑层（core/network/方块实体/GUI）一律从这里读取生效值，而不是直接读取
  * NeoForge 的 {@link ModConfigSpec}：这样每 tick 高频路径只做一次 volatile 原语读，
- * 类型表等「启动期解析」结果也只需在刷新时解析一次。默认值与字段初始值保持一致
- * （即配置尚未刷新时也等于现网行为基线）。
+ * 类型表等「启动期解析」结果也只需在刷新时解析一次。字段初始值取自默认值
+ * （即配置尚未刷新时也等于默认行为）。
  * <p>
  * 刷新入口由 {@code Torcherinoaemod} 在 {@code ModConfigEvent.Loading/Reloading}
  * 事件处理器中调用（registerConfig 只是排队，构造器内不可读 ConfigValue；
- * 配置加载前本类字段保持 ConfigDefaults 初始基线）。
+ * 配置加载前本类字段保持 ConfigDefaults 的默认值）。
  */
 public final class RuntimeConfig {
 

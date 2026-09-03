@@ -1,20 +1,16 @@
 package com.tianhai.torcherino_ae.api;
 
 /**
- * 每 tick 调用预算：限制单个加速源在一个游戏 tick 内可以触发的
+ * 单源每 tick 调用预算：限制一个加速源在一个游戏 tick 内可触发的
  * {@code IGridTickable.tickingRequest} 总次数。
  * <p>
- * 存在的理由：加速倍率按升级卡复合累乘（4 张 III 卡即 16384 倍），单台设备每 tick
- * 就要被调用上万次，一个源覆盖数十台设备时足以拖垮服务端。预算让管理员能把
- * 单源（乃至全服）的每 tick 调用总量封顶在安全水位。
+ * 加速倍率按升级卡复合累乘（4 张 III 卡即 16384 倍），单台设备每 tick 就要被调用
+ * 上万次，一个源覆盖数十台设备时总量相当可观。预算允许把单源的每 tick 调用量
+ * 封顶在安全水位，防止拖垮服务端。
  * <p>
- * <b>默认不限制</b>（{@link #UNLIMITED}），以完整保留现网数值行为；
- * P3 配置化后预算由加速源按配置项 {@code budget.tickCallsPerSource} 创建（默认 -1 不限），
- * 仅在管理员显式配置后生效。
- * <p>
- * 本类位于 {@code api} 包而非 {@code core}：它无任何外部依赖，且属于
- * {@link IAccelerationSource} 必须声明的契约的一部分，放进 {@code core}
- * 会让 {@code api} 反向依赖 {@code core}，破坏依赖铁律。
+ * <b>默认不限制</b>（{@link #UNLIMITED}）；每个加速源按服务端配置项
+ * {@code budget.tickCallsPerSource}（默认 -1）创建自己的预算实例，仅当管理员
+ * 显式配置后才生效。
  */
 public final class BudgetMeter {
 

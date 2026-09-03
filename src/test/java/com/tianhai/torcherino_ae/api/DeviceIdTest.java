@@ -19,7 +19,7 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.level.Level;
 
 /**
- * 设备身份值类型 {@link DeviceId} 的纯逻辑单测（§10.1）。
+ * 设备身份值类型 {@link DeviceId} 的纯逻辑单测。
  * <p>
  * 覆盖：跨维度同坐标不相等、部件按朝向区分、{@code stableKey}/{@code parse}
  * 字符串往返与非法输入兜底、CODEC 在 NBT 上的编解码往返（不依赖注册表运行环境）。
@@ -38,7 +38,7 @@ class DeviceIdTest {
         BlockPos pos = new BlockPos(100, 64, -200);
         DeviceId overworld = DeviceId.ofBlock(dim("minecraft:overworld"), pos);
         DeviceId nether = DeviceId.ofBlock(dim("minecraft:the_nether"), pos);
-        // 旧实现用 BlockPos.asLong() 作主键会误判，新模型维度参与 equals/stableKey。
+        // 维度参与 equals/stableKey：跨维度同坐标的两台设备标识必须不同，不能互相误判。
         assertNotEquals(overworld, nether);
         assertNotEquals(overworld.stableKey(), nether.stableKey());
     }

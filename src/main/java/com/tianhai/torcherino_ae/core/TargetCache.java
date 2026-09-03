@@ -9,8 +9,8 @@ import com.tianhai.torcherino_ae.config.ConfigDefaults;
 /**
  * 加速目标缓存：把「全网格 / 全区域扫描」的代价从每 tick 摊薄到「周期或变更时」。
  * <p>
- * 旧实现里 AE 加速器与 AE 加速火把各维护一份几乎相同的缓存三件套
- * （目标列表 + dirty 标记 + 周期计时器），这里统一为一份实现。
+ * 目标列表、失效标记与重建计时三类状态统一封装在本类，AE 加速器与 AE 加速火把
+ * 各持有一个实例复用同一套逻辑。
  * <p>
  * 触发重建的三种时机：
  * <ul>
@@ -19,12 +19,12 @@ import com.tianhai.torcherino_ae.config.ConfigDefaults;
  *   <li>引擎发现失效节点后回调 {@code IAccelerationSource.markTargetsDirty()}；</li>
  *   <li>达到重建周期（默认 20 tick），用于把新增设备纳入、把已移除设备剔除。</li>
  * </ul>
- * P3 配置化：周期默认值收口到 {@link ConfigDefaults}；实际使用方可在构造时传入
+ * 重建周期默认值定义在 {@link ConfigDefaults}，实际使用方可在构造时传入
  * {@code RuntimeConfig.cacheRebuildIntervalTicks()} 的当前值（方块实体每次创建读取）。
  */
 public final class TargetCache {
 
-    /** 默认重建间隔（tick），与重构前硬编码的 20 tick 一致（配置默认值）。 */
+    /** 默认重建间隔（tick）：配置默认值，可在构造时传入运行期值覆盖。 */
     public static final int DEFAULT_REBUILD_INTERVAL = ConfigDefaults.CACHE_REBUILD_INTERVAL_TICKS;
 
     private final int rebuildIntervalTicks;

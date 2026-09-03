@@ -80,7 +80,7 @@ public class AEAcceleratorMenu extends AEBaseMenu {
     // 降低遍历网格的开销；默认 20 tick，见 ConfigDefaults）。
     private int lastUpdate = RuntimeConfig.menuDeviceListRefreshTicks();
 
-    // 设备列表采集缓存（§8.4）：每次到达采集周期先比较「登记表版本 + 网格拓扑签名」，
+    // 设备列表采集缓存：每次到达采集周期先比较「登记表版本 + 网格拓扑签名」，
     // 二者均未变化时直接复用上次构造的 DeviceList——稳态（无人插拔设备、无加速状态变更、
     // 无合成 CPU 结构变化）下不再执行全量采集（new ItemStack + 名称翻译 + 排序）。
     private DeviceList cachedDevices;
@@ -136,8 +136,7 @@ public class AEAcceleratorMenu extends AEBaseMenu {
         // 客户端载荷经 GSON 传输，deviceId 是 DeviceId.stableKey() 字符串，先解析回类型。
         DeviceId deviceId = DeviceId.parse(target.deviceId);
         // 服务端校验：目标设备必须真实存在于本加速器当前的 AE 网格内。
-        // 客户端动作载荷可被伪造，旧实现直接采信，会把任意字符串写入持久化的状态表，
-        // 既污染存档又永远不会被加速脉冲命中。
+        // 客户端动作载荷可被伪造，这里不直接采信，避免非法标识写入持久化的状态表。
         if (deviceId == null || !isDeviceInGrid(deviceId)) {
             return;
         }
@@ -374,7 +373,7 @@ public class AEAcceleratorMenu extends AEBaseMenu {
      * <p>
      * 缓存的失效条件是「登记表版本变化（加速中标记 / 倍率过期）」或「网格拓扑签名变化
      * （设备上/下线、激活状态翻转、合成 CPU 结构变化）」；两者都未变化时直接复用上次
-     * 采集结果，稳态下几乎零开销（§8.4）。
+     * 采集结果，稳态下几乎零开销。
      */
     private DeviceList getDeviceList() {
         int registryVersion = host.targetRegistryVersion();

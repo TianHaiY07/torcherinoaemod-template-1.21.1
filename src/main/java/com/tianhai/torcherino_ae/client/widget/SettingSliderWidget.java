@@ -26,16 +26,15 @@ import com.tianhai.torcherino_ae.menu.AETorcherinoMenu;
 /**
  * 设置滑块控件：由 device_entry_gui.png 的轨道槽与手柄素材绘制，实时发送新值到服务端。
  * <p>
- * 供 AE 加速火把界面（{@link AETorcherinoScreen}）调节加速倍数与三维范围使用；
- * 原为 AETorcherinoScreen 的内部类，P2 分层时独立成文件（client/widget）。
+ * 供 AE 加速火把界面（{@link AETorcherinoScreen}）调节加速倍数与三维范围使用。
  * 实现为 {@link ICompositeWidget}，由 AE 的 {@code WidgetContainer} 统一派发绘制与鼠标事件。
  * 数值范围 [min, max]；拖动/滚轮/点击轨道都会更新数值并调用 {@link Consumer} 发送到服务端，
  * 服务端下发的最新值会经 {@link #syncFromServer} 在未拖动时同步回来，避免拖动期间被覆盖。
  * <p>
- * P3 配置化：上限 {@code max} 不再写死为构造常量，而是经 {@link Function} 从菜单的
- * {@code @GuiSync} 上限字段（服务端配置 {@code torcherino.maxSpeed/maxXzRange/maxYRange}
- * 的同步结果）读取；每 tick 随 {@link #syncFromServer} 一起刷新，因此服务端配置变更后
- * 新开的界面（以及首包到达后的既有界面）都能拿到正确上限。
+ * 上限 {@code max} 经 {@link Function} 从菜单的 {@code @GuiSync} 上限字段
+ * （服务端配置 {@code torcherino.maxSpeed/maxXzRange/maxYRange} 的同步结果）读取；
+ * 每 tick 随 {@link #syncFromServer} 一起刷新，因此服务端配置变更后新开的界面
+ * （以及首包到达后的既有界面）都能拿到正确上限。
  */
 public class SettingSliderWidget implements ICompositeWidget {
 
