@@ -11,6 +11,7 @@ import com.tianhai.torcherino_ae.item.ModCreativeTabs;
 import com.tianhai.torcherino_ae.item.ModDataComponents;
 import com.tianhai.torcherino_ae.item.ModItems;
 import com.tianhai.torcherino_ae.menu.ModMenus;
+import com.tianhai.torcherino_ae.blockentity.TorcherinoWakeup;
 import com.tianhai.torcherino_ae.util.DebugLog;
 import com.tianhai.torcherino_ae.core.AdaptiveThrottle;
 import appeng.api.AECapabilities;
@@ -70,6 +71,10 @@ public class Torcherinoaemod {
         // 单 tick 纯计算耗时（EMA 平滑后与阈值比较，见 AdaptiveThrottle）。
         NeoForge.EVENT_BUS.addListener(Torcherinoaemod::onServerTickStart);
         NeoForge.EVENT_BUS.addListener(Torcherinoaemod::onServerTickEnd);
+
+        // 加速火把的「范围变化事件唤醒」：监听方块放置/破坏，落在火把影响范围内时唤醒其重扫，
+        // 补充自适应退避下新增设备响应慢的短板（见 TorcherinoWakeup / AETorcherinoBlockEntity）。
+        NeoForge.EVENT_BUS.register(TorcherinoWakeup.class);
 
         // 注册 commonSetup 阶段处理器（mod 加载阶段执行）。
         modEventBus.addListener(this::commonSetup);

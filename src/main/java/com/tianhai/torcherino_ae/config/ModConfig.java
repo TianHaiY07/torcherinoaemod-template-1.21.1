@@ -40,6 +40,11 @@ public final class ModConfig {
         public final ModConfigSpec.IntValue adaptiveFloorCalls;
         public final ModConfigSpec.DoubleValue adaptiveTightenMs;
         public final ModConfigSpec.DoubleValue adaptiveRelaxMs;
+        // ---- 源级加速耗时调控 ----
+        public final ModConfigSpec.DoubleValue rateSourceMsLimit;
+        public final ModConfigSpec.DoubleValue rateEmaAlpha;
+        public final ModConfigSpec.DoubleValue rateTightenRatio;
+        public final ModConfigSpec.DoubleValue rateRelaxRatio;
         // ---- 能耗 ----
         public final ModConfigSpec.DoubleValue powerPerTick;
         public final ModConfigSpec.DoubleValue powerPerUpgradeCard;
@@ -61,6 +66,10 @@ public final class ModConfig {
         public final ModConfigSpec.IntValue torcherinoMaxSpeed;
         public final ModConfigSpec.IntValue torcherinoMaxXzRange;
         public final ModConfigSpec.IntValue torcherinoMaxYRange;
+        public final ModConfigSpec.IntValue torcherinoScanIntervalTicks;
+        public final ModConfigSpec.IntValue torcherinoScanBackoffMaxTicks;
+        public final ModConfigSpec.IntValue torcherinoScanMaxCellsPerTick;
+        public final ModConfigSpec.IntValue torcherinoRandomTickRate;
 
         Server(ModConfigSpec.Builder builder) {
             // 加速器
@@ -119,6 +128,30 @@ public final class ModConfig {
             this.adaptiveRelaxMs = builder
                     .comment(" 退出收紧的回落阈值（毫秒），应小于 tightenMs（过大时按 tightenMs 钳制），避免负载在阈值附近抖动。")
                     .defineInRange("relaxMs", ConfigDefaults.ADAPTIVE_RELAX_MS, 1.0, 50.0);
+            builder.pop();
+
+            // 源级加速耗时调控（主调控：按「加速器自身贡献的超额耗时」动态下调实际倍率）
+            builder.comment(" 源级加速耗时调控（主调控）：每个加速源（台加速器 / 火把）各自测量自己本 tick")
+                    .comment(" 加速执行的耗时，达到上限时把「实际加速倍率」往下压（设定倍率只作总阈值，")
+                    .comment(" 永不超过去）。按「源自身贡献耗时」而非整 tick 计量，别处负载不干扰判定；")
+                    .comment(" 与 adaptive 段的整 tick 次数预算互不冲突（后者仅作极端情况兜底）。")
+                    .push("rate");
+            this.rateSourceMsLimit = builder
+                    .comment(" 单源每 tick 允许贡献的加速耗时上限（毫秒）。耗时超过")
+                    .comment(" sourceMsLimit × tightenRatio 时把实际倍率按比例下压；回落到 sourceMsLimit")
+                    .comment(" × relaxRatio 以下才逐 tick 回升（滞回防抖）。默认 15.0ms 占 50ms 硬限约 30%，")
+                    .comment(" 调大则更保守（更少干预正常加速）、调小则更激进。")
+                    .defineInRange("sourceMsLimit", ConfigDefaults.RATE_SOURCE_MS_LIMIT, 1.0, 50.0);
+            this.rateEmaAlpha = builder
+                    .comment(" 本源加速耗时的 EMA 平滑系数（0~1）：越大响应越快、越敏感。")
+                    .defineInRange("emaAlpha", ConfigDefaults.RATE_EMA_ALPHA, 0.01, 1.0);
+            this.rateTightenRatio = builder
+                    .comment(" 收紧触发比例：本 tick 加速耗时 EMA ≥ sourceMsLimit × 本值时下压实际倍率。")
+                    .defineInRange("tightenRatio", ConfigDefaults.RATE_TIGHTEN_RATIO, 0.5, 2.0);
+            this.rateRelaxRatio = builder
+                    .comment(" 放松触发比例：本 tick 加速耗时 EMA < sourceMsLimit × 本值时逐 tick 回升实际倍率，")
+                    .comment(" 应小于 tightenRatio（过大时按 tightenRatio 钳制），避免负载在阈值附近抖动。")
+                    .defineInRange("relaxRatio", ConfigDefaults.RATE_RELAX_RATIO, 0.05, 1.0);
             builder.pop();
 
             // 能耗模型
@@ -196,6 +229,27 @@ public final class ModConfig {
             this.torcherinoMaxYRange = builder
                     .comment(" 火把 Y 轴向最大范围半径。")
                     .defineInRange("maxYRange", ConfigDefaults.TORCHERINO_MAX_Y_RANGE, 0, 32);
+            this.torcherinoScanIntervalTicks = builder
+                    .comment(" 火把影响范围的分片扫描窗口 / 密集发现周期（tick）：把一整圈范围扫描")
+                    .comment(" 分摊到这么多 tick 内完成，避免单个 tick 全量遍历大范围（主线程热点）。")
+                    .comment(" 范围内设备无变化时按 scanBackoffMaxTicks 逐轮退避降频；有方块放置/")
+                    .comment(" 破坏时经事件唤醒立即恢复密集扫描。")
+                    .defineInRange("scanIntervalTicks", ConfigDefaults.TORCHERINO_SCAN_INTERVAL_TICKS, 1, 200);
+            this.torcherinoScanBackoffMaxTicks = builder
+                    .comment(" 火把影响范围扫描的退避上限（tick）：范围稳定无变化时逐轮把扫描周期")
+                    .comment(" 翻倍退避到该值（降低平均扫描成本）。")
+                    .defineInRange("scanBackoffMaxTicks", ConfigDefaults.TORCHERINO_SCAN_BACKOFF_MAX_TICKS, 1, 1_200);
+            this.torcherinoScanMaxCellsPerTick = builder
+                    .comment(" 火把影响范围每次扫描在最坏情况下单 tick 会查询的单元格上限。")
+                    .comment(" 范围极大（例如服务端调高了 maxXzRange）时，把扫描窗口（tick 数）线性拉长，")
+                    .comment(" 使单 tick 查询的格子数始终不超过本值，防止超大范围单 tick 全量遍历造成主线程尖峰。")
+                    .comment(" 小范围不受影响（窗口仍是 scanIntervalTicks）。")
+                    .defineInRange("scanMaxCellsPerTick", ConfigDefaults.TORCHERINO_SCAN_MAX_CELLS_PER_TICK, 1, 65_536);
+            this.torcherinoRandomTickRate = builder
+                    .comment(" 火把随机 tick 加速的倍率系数（1~4096）：越大随机 tick 触发越频繁。")
+                    .comment(" 采用概率式分摊（参照原版 Torcherino），单格单 tick 至多触发 1 次随机 tick，")
+                    .comment(" 使随机 tick 加速的工作量与 speed 基本解耦，避免对作物/农场做 speed-1 次暴力调用。")
+                    .defineInRange("randomTickRate", ConfigDefaults.TORCHERINO_RANDOM_TICK_RATE, 1, 4096);
             builder.pop();
         }
     }

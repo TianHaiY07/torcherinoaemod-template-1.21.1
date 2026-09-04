@@ -38,6 +38,7 @@ import com.tianhai.torcherino_ae.core.AccelerationEngine;
 import com.tianhai.torcherino_ae.core.AdaptiveThrottle;
 import com.tianhai.torcherino_ae.core.MultiplierCalculator;
 import com.tianhai.torcherino_ae.core.PowerModel;
+import com.tianhai.torcherino_ae.core.RateGovernor;
 import com.tianhai.torcherino_ae.core.SourceBudget;
 import com.tianhai.torcherino_ae.core.TargetCache;
 import com.tianhai.torcherino_ae.core.TargetRegistry;
@@ -122,6 +123,10 @@ public class AEAcceleratorBlockEntity extends AENetworkedPoweredBlockEntity
     // 单 tick 调用预算：预算值由配置 budget.tickCallsPerSource 经 TPS 自适应节流决定，变化时重建（见 SourceBudget）。
     private final SourceBudget budget = new SourceBudget();
 
+    // 源级加速耗时调控：按「本加速器自身贡献的加速耗时」把实际倍率动态下调（设定倍率只作总阈值）。
+    // 每台加速器独立计量，别处负载不干扰；AdaptiveThrottle 的调用次数预算保留作极端兜底（见 RateGovernor）。
+    private final RateGovernor rateGovernor = new RateGovernor();
+
     // 网络诊断计数器：每累计 20 tick（即 1 秒）输出一次完整连接状态，
     // 便于实时判断加速器是否真正连接上 AE 网络（排查「UI 显示未连接」问题）。
     private int diagnosticTimer;
@@ -203,15 +208,29 @@ public class AEAcceleratorBlockEntity extends AENetworkedPoweredBlockEntity
     public int multiplierFor(DeviceId id) {
         // 已登记设备（玩家勾选 / 配置卡注入）：用登记表中该设备的独立倍数。
         int registered = targetRegistry.multiplierFor(id, -1);
+        int runCap = runCap();
         if (registered > 1) {
-            return registered;
+            // 实际倍率 = min(设定倍率, 被测耗时压到的 runCap)：设定倍率只是总阈值，只往下调不往上超。
+            return Math.min(registered, runCap);
         }
         // 未登记但属于智能联动目标：按当前智能加速倍率放行（受配置 crafting.smartAccelerateEnabled
         // 控制；关闭时返回 1，引擎因 extraCalls<=0 自动跳过，不产生联动加速）。
         if (RuntimeConfig.smartAccelerateEnabled() && craftingLinkedIds.contains(id)) {
-            return currentSmartCpuMultiplier();
+            return Math.min(currentSmartCpuMultiplier(), runCap);
         }
         return 1;
+    }
+
+    /**
+     * 当前「实际可用」的加速倍率上限（总阈值 = 整体最高倍率 {@link #getAccelMultiplier()}）。
+     * <p>
+     * 由 {@link #rateGovernor} 依据本加速器「本 tick 贡献的加速耗时」动态下调：负载健康时返回
+     * 整体最高倍率（不干预），本加速器把自己主线程时间挤到配置上限以上时按比例压到
+     * {@code [1, max]}。GUI 显示的仍是设定倍率（{@link #getDeviceMultiplier}），实际倍率仅在
+     * 脉冲执行时经 {@link #multiplierFor} 生效。
+     */
+    public int runCap() {
+        return rateGovernor.cap(getAccelMultiplier());
     }
 
     @Override
@@ -278,6 +297,9 @@ public class AEAcceleratorBlockEntity extends AENetworkedPoweredBlockEntity
         // 不提取能量、不标记工作，方块停留在 ae_accelerator_on（接电但空闲）模型，实现节能。
         double needed = getRequiredPowerPerTick();
         AccelerationResult result = AccelerationEngine.pulse(this);
+        // 把本次脉冲实际耗时喂入本源耗时调控：据此动态下调实际倍率（设定倍率只作总阈值）。
+        // 无论是否 didWork 都采样——全部设备空转时耗时很小，EMA 回落，实际倍率自动回升。
+        rateGovernor.sample(result.spentMs());
 
         boolean isWorking = false;
         double available = 0;
@@ -292,15 +314,17 @@ public class AEAcceleratorBlockEntity extends AENetworkedPoweredBlockEntity
         if (log) {
             DebugLog.info(
                     "[诊断][工作] {} | needed={} | available={} | isWorking={} | 实际加速设备={} | 调用次数={} |"
-                            + " 睡眠跳过={} | 未激活跳过={} | 脱离剔除={} | 预算耗尽={} | 最高倍数={} | 登记设备={}"
-                            + " | 自适应节流={} | tick耗时EMA={}ms",
+                            + " 睡眠跳过={} | 未激活跳过={} | 脱离剔除={} | 预算耗尽={} | 最高倍数={} | 实际上限={} |"
+                            + " 登记设备={} | 自适应节流={} | tick耗时EMA={}ms | 本源加速EMA={}ms | 倍率因子={}",
                     getBlockPos(), needed, available, isWorking, result.hit(), result.tickCalls(),
                     result.skippedSleeping(), result.skippedInactive(), result.skippedDetached(),
-                    result.budgetExhausted(), getAccelMultiplier(), targetRegistry.size(),
+                    result.budgetExhausted(), getAccelMultiplier(), runCap(), targetRegistry.size(),
                     AdaptiveThrottle.INSTANCE.isThrottled()
                             ? "收紧(档" + AdaptiveThrottle.INSTANCE.throttleLevel() + ")"
                             : "正常",
-                    (double) Math.round(AdaptiveThrottle.INSTANCE.emaTickMs() * 10) / 10);
+                    (double) Math.round(AdaptiveThrottle.INSTANCE.emaTickMs() * 10) / 10,
+                    (double) Math.round(rateGovernor.emaMs() * 10) / 10,
+                    (double) Math.round(rateGovernor.factor() * 100) / 100);
         }
     }
 

@@ -60,6 +60,24 @@ public final class ConfigDefaults {
     /** 单 tick 计算耗时（毫秒）回落到该值以下才退出收紧（滞回防抖，须小于收紧阈值）。 */
     public static final double ADAPTIVE_RELAX_MS = 35.0;
 
+    // ============================== 源级加速耗时调控 ==============================
+
+    /**
+     * 每个加速源（台加速器 / 火把）每 tick 允许贡献的加速耗时上限（毫秒）。
+     * 「按加速器贡献的超额耗时」而非整 tick 计量：只当加速器自己挤占主线程到这个
+     * 水位时，才把实际加速倍率往下压；别处负载不会干扰判定。
+     */
+    public static final double RATE_SOURCE_MS_LIMIT = 15.0;
+
+    /** 本源加速耗时的 EMA 平滑系数（越大响应越快，过小会延迟下压）。默认 0.25 约合 4 tick 时间常数。 */
+    public static final double RATE_EMA_ALPHA = 0.25;
+
+    /** 收紧判定：本 tick 加速耗时 EMA ≥ {@code sourceMsLimit × tightenRatio} 时把实际倍率下压。 */
+    public static final double RATE_TIGHTEN_RATIO = 1.0;
+
+    /** 放松判定：本 tick 加速耗时 EMA &lt; {@code sourceMsLimit × relaxRatio} 时把实际倍率逐 tick 回升；滞回防抖。 */
+    public static final double RATE_RELAX_RATIO = 0.7;
+
     // ============================== 能耗模型 ==============================
 
     /** 基础能耗（AE/t）：加速器每 tick 固定抽取。 */
@@ -134,6 +152,19 @@ public final class ConfigDefaults {
 
     /** 火把 Y 轴向最大范围半径。 */
     public static final int TORCHERINO_MAX_Y_RANGE = 4;
+
+    /** 火把影响范围「分片扫描」窗口 / 密集发现周期（tick）：一整圈范围扫描分摊到这么多 tick 内完成。 */
+    public static final int TORCHERINO_SCAN_INTERVAL_TICKS = 20;
+
+    /** 火把影响范围扫描的「退避上限」（tick）：范围稳定无变化时逐轮把扫描周期翻倍退避到该值。 */
+    public static final int TORCHERINO_SCAN_BACKOFF_MAX_TICKS = 200;
+
+    /** 火把影响范围每次扫描在最坏情况下单 tick 会 touch 的单元格上限：范围极大时把扫描窗口（tick 数）
+     * 线性拉长以把单 tick 扫描成本钳制在该值内（防止超大范围单 tick 全量遍历造成主线程尖峰）。 */
+    public static final int TORCHERINO_SCAN_MAX_CELLS_PER_TICK = 512;
+
+    /** 火把随机 tick 加速的倍率系数：越大随机 tick 触发越频繁（分摊到多 tick，单格单 tick 至多 1 次）。 */
+    public static final int TORCHERINO_RANDOM_TICK_RATE = 4;
 
     // ============================== 客户端 ==============================
 

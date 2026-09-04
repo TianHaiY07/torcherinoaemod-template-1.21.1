@@ -98,6 +98,33 @@ public final class RuntimeConfig {
         return adaptiveRelaxMs;
     }
 
+    // ============================== 源级加速耗时调控 ==============================
+
+    private static volatile double rateSourceMsLimit = ConfigDefaults.RATE_SOURCE_MS_LIMIT;
+    private static volatile double rateEmaAlpha = ConfigDefaults.RATE_EMA_ALPHA;
+    private static volatile double rateTightenRatio = ConfigDefaults.RATE_TIGHTEN_RATIO;
+    private static volatile double rateRelaxRatio = ConfigDefaults.RATE_RELAX_RATIO;
+
+    /** 单源每 tick 允许贡献的加速耗时上限（毫秒）。 */
+    public static double rateSourceMsLimit() {
+        return rateSourceMsLimit;
+    }
+
+    /** 本源加速耗时的 EMA 平滑系数。 */
+    public static double rateEmaAlpha() {
+        return rateEmaAlpha;
+    }
+
+    /** 收紧触发比例（耗时 EMA ≥ limit × 本值时下压实际倍率）。 */
+    public static double rateTightenRatio() {
+        return rateTightenRatio;
+    }
+
+    /** 放松触发比例（耗时 EMA &lt; limit × 本值时逐 tick 回升，滞回防抖）。 */
+    public static double rateRelaxRatio() {
+        return rateRelaxRatio;
+    }
+
     public static double powerPerTick() {
         return powerPerTick;
     }
@@ -170,6 +197,10 @@ public final class RuntimeConfig {
     private static volatile int torcherinoMaxSpeed = ConfigDefaults.TORCHERINO_MAX_SPEED;
     private static volatile int torcherinoMaxXzRange = ConfigDefaults.TORCHERINO_MAX_XZ_RANGE;
     private static volatile int torcherinoMaxYRange = ConfigDefaults.TORCHERINO_MAX_Y_RANGE;
+    private static volatile int torcherinoScanIntervalTicks = ConfigDefaults.TORCHERINO_SCAN_INTERVAL_TICKS;
+    private static volatile int torcherinoScanBackoffMaxTicks = ConfigDefaults.TORCHERINO_SCAN_BACKOFF_MAX_TICKS;
+    private static volatile int torcherinoScanMaxCellsPerTick = ConfigDefaults.TORCHERINO_SCAN_MAX_CELLS_PER_TICK;
+    private static volatile int torcherinoRandomTickRate = ConfigDefaults.TORCHERINO_RANDOM_TICK_RATE;
 
     public static int torcherinoMaxSpeed() {
         return torcherinoMaxSpeed;
@@ -181,6 +212,26 @@ public final class RuntimeConfig {
 
     public static int torcherinoMaxYRange() {
         return torcherinoMaxYRange;
+    }
+
+    /** 火把影响范围「分片扫描」窗口 / 密集发现周期（tick）。 */
+    public static int torcherinoScanIntervalTicks() {
+        return torcherinoScanIntervalTicks;
+    }
+
+    /** 火把影响范围扫描的「退避上限」（tick）。 */
+    public static int torcherinoScanBackoffMaxTicks() {
+        return torcherinoScanBackoffMaxTicks;
+    }
+
+    /** 火把影响范围扫描在最坏情况下单 tick 会查询的单元格上限（范围极大时拉长窗口用）。 */
+    public static int torcherinoScanMaxCellsPerTick() {
+        return torcherinoScanMaxCellsPerTick;
+    }
+
+    /** 火把随机 tick 加速的倍率系数（用来推导概率式随机 tick 的分母）。 */
+    public static int torcherinoRandomTickRate() {
+        return torcherinoRandomTickRate;
     }
 
     // ============================== 客户端 ==============================
@@ -209,6 +260,11 @@ public final class RuntimeConfig {
         adaptiveTightenMs = server.adaptiveTightenMs.get();
         // 退出阈值钳制到不超过进入阈值，避免「收紧后永不恢复」或阈值倒挂导致逻辑异常。
         adaptiveRelaxMs = Math.min(server.adaptiveRelaxMs.get(), adaptiveTightenMs);
+        rateSourceMsLimit = server.rateSourceMsLimit.get();
+        rateEmaAlpha = Math.max(0.01, Math.min(1.0, server.rateEmaAlpha.get()));
+        rateTightenRatio = Math.max(0.5, Math.min(2.0, server.rateTightenRatio.get()));
+        // 放松比例钳制到不超过收紧比例，避免「回不了头」或阈值倒挂导致倍率恒定被压。
+        rateRelaxRatio = Math.min(server.rateRelaxRatio.get(), rateTightenRatio);
         powerPerTick = server.powerPerTick.get();
         powerPerUpgradeCard = server.powerPerUpgradeCard.get();
         powerPerAcceleratedDevice = server.powerPerAcceleratedDevice.get();
@@ -222,6 +278,10 @@ public final class RuntimeConfig {
         torcherinoMaxSpeed = Math.max(1, server.torcherinoMaxSpeed.get());
         torcherinoMaxXzRange = Math.max(0, server.torcherinoMaxXzRange.get());
         torcherinoMaxYRange = Math.max(0, server.torcherinoMaxYRange.get());
+        torcherinoScanIntervalTicks = Math.max(1, server.torcherinoScanIntervalTicks.get());
+        torcherinoScanBackoffMaxTicks = Math.max(1, server.torcherinoScanBackoffMaxTicks.get());
+        torcherinoScanMaxCellsPerTick = Math.max(1, server.torcherinoScanMaxCellsPerTick.get());
+        torcherinoRandomTickRate = Math.max(1, server.torcherinoRandomTickRate.get());
         accelCardFactors = readFactors(server.acceleratorCardMultipliers.get());
         acceleratableBlacklist = resolveTypeSet(server.gridAcceleratableBlacklist.get(), "acceleratableBlacklist");
         craftingMachineExtras = resolveTypeSet(server.gridCraftingMachineExtraTypes.get(), "craftingMachineExtraTypes");

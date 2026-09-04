@@ -54,6 +54,10 @@ public final class AccelerationEngine {
         BudgetMeter budget = source.budget();
         budget.resetTick();
 
+        // 计量本次脉冲实际执行耗时（本加速器为加速付出的主线程时间），供源级耗时调控取样。
+        // 仅用局部变量（不分配、不拼接、不打日志），保持本方法位于每 tick 路径的性能约束。
+        long pulseStartNanos = System.nanoTime();
+
         // 取源所在网格做一致性校验：源未入网（返回 null）时跳过该校验。
         IGrid expectedGrid = source.grid();
         List<AccelerationTarget> targets = source.targets();
@@ -140,6 +144,6 @@ public final class AccelerationEngine {
         }
 
         return new AccelerationResult(hit, skippedSleeping, skippedInactive, skippedDetached, tickCalls,
-                budgetExhausted);
+                budgetExhausted, (System.nanoTime() - pulseStartNanos) / 1_000_000.0);
     }
 }

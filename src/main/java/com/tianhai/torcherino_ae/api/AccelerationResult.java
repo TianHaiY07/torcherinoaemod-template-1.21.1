@@ -18,10 +18,12 @@ public record AccelerationResult(
         /** 本 tick 实际执行的 tickingRequest 调用总数。 */
         int tickCalls,
         /** 是否因预算耗尽而提前结束本次脉冲。 */
-        boolean budgetExhausted) {
+        boolean budgetExhausted,
+        /** 本次脉冲实际执行的耗时（毫秒），供源级加速耗时调控（RateGovernor）取样。 */
+        double spentMs) {
 
     /** 没有任何设备被加速的结果（未激活、无目标等场景）。 */
-    public static final AccelerationResult NONE = new AccelerationResult(0, 0, 0, 0, 0, false);
+    public static final AccelerationResult NONE = new AccelerationResult(0, 0, 0, 0, 0, false, 0.0);
 
     /** 是否至少加速了一台设备。 */
     public boolean didWork() {
