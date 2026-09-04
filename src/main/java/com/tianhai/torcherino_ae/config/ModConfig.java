@@ -32,6 +32,7 @@ public final class ModConfig {
         public final ModConfigSpec.IntValue acceleratorBaseMultiplier;
         public final ModConfigSpec.ConfigValue<List<? extends Integer>> acceleratorCardMultipliers;
         public final ModConfigSpec.IntValue acceleratorMaxMultiplierCap;
+        public final ModConfigSpec.DoubleValue acceleratorCardDiminishing;
         // ---- 预算 ----
         public final ModConfigSpec.IntValue budgetTickCallsPerSource;
         // ---- TPS 自适应节流 ----
@@ -66,15 +67,23 @@ public final class ModConfig {
             builder.comment(" 加速器基础数值：默认值即模组默认行为，修改经配置重载后对新生效的网格生效。")
                     .push("accelerator");
             this.acceleratorBaseMultiplier = builder
-                    .comment(" 无升级卡时的基础加速倍率（升级卡在此基础上累乘）。")
+                    .comment(" 无升级卡时的基础加速倍率（升级卡在此基础上放大）。")
                     .defineInRange("baseMultiplier", ConfigDefaults.ACCEL_BASE_MULTIPLIER, 1, 1_000_000);
             Predicate<Object> positiveInt = o -> o instanceof Integer i && i > 0;
             this.acceleratorCardMultipliers = builder
-                    .comment(" I/II/III 三种升级卡的倍增系数，顺序对应，长度保持 3（不足时按默认补齐）。")
+                    .comment(" I/II/III 三种升级卡的标称倍增系数（作为各档「第一张」的放大倍率），顺序对应，")
+                    .comment(" 长度保持 3（不足时按默认补齐）。同档重复堆叠的递减效果见 cardDiminishing。")
                     .defineListAllowEmpty("cardMultipliers", ConfigDefaults.ACCEL_CARD_FACTORS, positiveInt);
             this.acceleratorMaxMultiplierCap = builder
                     .comment(" 复合后的最高倍数硬上限；-1 表示不限制。")
                     .defineInRange("maxMultiplierCap", ConfigDefaults.ACCEL_MAX_MULTIPLIER_CAP, -1, 1_000_000);
+            this.acceleratorCardDiminishing = builder
+                    .comment(" 同档升级卡重复堆叠时的「边际收益保留比」（0~1）：同一档的第 1 张按")
+                    .comment(" cardMultipliers 标称系数全价放大，之后每多插一张该档卡，其实际放大倍率按")
+                    .comment(" 「下一张 = 1 + (上一张 - 1) × 保留比」向 1 收敛，抑制同档堆叠的指数爆炸。")
+                    .comment(" 1.0 表示每张都按同系数放大，完全还原旧的指数累乘；0.0 表示第二张起不再额外放大。")
+                    .comment(" 默认 0.45：单卡与异档混插数值不变，满配 4 张 III 卡约 526 倍（旧公式为 16384 倍）。")
+                    .defineInRange("cardDiminishing", ConfigDefaults.ACCEL_DIMINISHING_RETENTION, 0.0, 1.0);
             builder.pop();
 
             // 单 tick 预算

@@ -24,7 +24,7 @@
 
 ## 3. 运行环境与版本
 
-- 平台：NeoForge **1.21.1** / Java 21。`gradle.properties` 关键值：modid `torcherino_ae_mod`、group `com.tianhai.torcherino_ae`、mod_version `1.0.0-1.21.1`、neo_version `21.1.248`、parchment `1.21.1 / 2024.11.17`。
+- 平台：NeoForge **1.21.1** / Java 21。`gradle.properties` 关键值：modid `torcherino_ae_mod`、group `com.tianhai.torcherino_ae`、mod_version `1.01`、neo_version `21.1.248`、parchment `1.21.1 / 2024.11.17`。
 - 依赖（`build.gradle`）：AE2（Modrinth Maven `maven.modrinth:XxWD5pD3:DUSBnYm0`）+ GuideME（`maven.modrinth:Ck4E7v7R:9aIv5HxH`，AE2 强制运行时依赖）+ **本地 mods**（项目根 `libs/*.jar` 自动加载进 dev 环境，可放测试用附属 mod）。
 - 单元测试：JUnit 5，现有 **9 个纯逻辑测试类**（见 §10）。**注意**：build.gradle 末段把 main 的 Minecraft/NeoForge 类路径叠加给了 test sourceSet——引用 `net.minecraft.*` 值类型的测试（BlockPos/ResourceLocation/NbtOps）依赖这份类路径，删不得。
 

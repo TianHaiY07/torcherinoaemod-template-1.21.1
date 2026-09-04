@@ -36,11 +36,14 @@ public final class RuntimeConfig {
 
     private static volatile int accelMaxMultiplierCap = ConfigDefaults.ACCEL_MAX_MULTIPLIER_CAP;
 
+    /** 同档升级卡重复堆叠时的「边际收益保留比」（0~1，默认见 ConfigDefaults）。 */
+    private static volatile double accelCardDiminishing = ConfigDefaults.ACCEL_DIMINISHING_RETENTION;
+
     public static int accelBaseMultiplier() {
         return accelBaseMultiplier;
     }
 
-    /** 指定档位（0=I, 1=II, 2=III）的升级卡倍增系数。 */
+    /** 指定档位（0=I, 1=II, 2=III）的升级卡标称倍增系数。 */
     public static int accelCardFactor(int index) {
         return accelCardFactors[index];
     }
@@ -48,6 +51,11 @@ public final class RuntimeConfig {
     /** 最高倍数硬上限；返回 -1 表示不限制。 */
     public static int accelMaxMultiplierCap() {
         return accelMaxMultiplierCap;
+    }
+
+    /** 同档边际收益保留比（1.0 = 还原旧的指数累乘）。 */
+    public static double accelCardDiminishing() {
+        return accelCardDiminishing;
     }
 
     // ============================== 预算 / 能耗 ==============================
@@ -194,6 +202,7 @@ public final class RuntimeConfig {
     public static void refreshServer(ModConfig.Server server) {
         accelBaseMultiplier = server.acceleratorBaseMultiplier.get();
         accelMaxMultiplierCap = server.acceleratorMaxMultiplierCap.get();
+        accelCardDiminishing = Math.max(0.0, Math.min(1.0, server.acceleratorCardDiminishing.get()));
         budgetTickCallsPerSource = server.budgetTickCallsPerSource.get();
         adaptiveEnabled = server.adaptiveEnabled.get();
         adaptiveFloorCalls = Math.max(1, server.adaptiveFloorCalls.get());

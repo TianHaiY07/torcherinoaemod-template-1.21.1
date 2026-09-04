@@ -102,7 +102,7 @@ public class DeviceConfigPopup implements ICompositeWidget {
 
     /**
      * 当前可调的最大加速倍数：取菜单经 {@code @GuiSync} 同步的实时值
-     * （服务端按已插入升级卡复合累乘计算），避免依赖客户端方块实体副本。
+     * （服务端按已插入升级卡计算，同档堆叠含边际收益递减），避免依赖客户端方块实体副本。
      */
     private int getMaxMultiplier() {
         return Math.max(1, menu.getMaxMultiplier());

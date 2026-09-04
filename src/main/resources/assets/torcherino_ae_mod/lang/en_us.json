@@ -11,7 +11,7 @@
   "item.torcherino_ae_mod.ae_accelerator_up_card_i": "AE Accelerator Upgrade Card I",
   "item.torcherino_ae_mod.ae_accelerator_up_card_ii": "AE Accelerator Upgrade Card II",
   "item.torcherino_ae_mod.ae_accelerator_up_card_iii": "AE Accelerator Upgrade Card III",
-  "item.torcherino_ae_mod.accelerator_upgrade_card.tooltip": "Each inserted card multiplies the base acceleration by x%s",
+  "item.torcherino_ae_mod.accelerator_upgrade_card.tooltip": "The first card of each tier multiplies the acceleration by x%s; extra cards of the same tier have diminishing returns",
   "itemGroup.torcherino_ae_mod": "Torcherino AE",
   "gui.torcherino_ae_mod.ae_accelerator": "AE Accelerator",
   "gui.torcherino_ae_mod.ae_torcherino": "AE Acceleration Torch",

@@ -72,8 +72,9 @@ import net.minecraft.world.level.block.state.BlockState;
  *       online/working 状态同步（经 writeToStream/readFromStream 驱动模型）与网络诊断。</li>
  * </ul>
  * 未安装升级卡时最高加速 4x（基础倍率与各档系数均可由配置调整，默认分别为 4 / 2 / 4 / 8）；
- * 每插入一张升级卡（I=×2、II=×4、III=×8）会以复合累乘的方式放大基础倍数：
- * 4 × 2^I × 4^II × 8^III（公式见 {@link MultiplierCalculator}）。
+ * 升级卡按「同档边际收益递减」放大：每档第 1 张（I=×2、II=×4、III=×8）全价生效，
+ * 同档重复堆叠时逐张收益按配置 {@code accelerator.cardDiminishing} 递减，抑制指数爆炸
+ * （默认满配 4 张 III 卡约 526 倍；保留比设 1.0 即还原旧的指数累乘。公式见 {@link MultiplierCalculator}）。
  * 可被加速的设备分两类：注册了网格 tick 服务（{@link IGridTickable}）经 AE2 网格 tick 管理器加速，
  * 或「接了 AE 网络、但加工走原版 {@code BlockEntity} tick」的机器，由引擎按倍率反复执行其原版 tick。
  */
@@ -314,18 +315,20 @@ public class AEAcceleratorBlockEntity extends AENetworkedPoweredBlockEntity
     // ========================= 倍率与能量 =========================
 
     /**
-     * 当前最高加速倍数：基础 4x，随已安装的升级卡以复合累乘方式放大。
+     * 当前最高加速倍数：基础 4x，随已安装的升级卡放大（同档堆叠边际收益递减）。
      * <p>
-     * 公式：{@code BASE_ACCEL_MULTIPLIER × 2^I × 4^II × 8^III}（I/II/III 分别为三种升级卡的数量，
-     * 见 {@link MultiplierCalculator}）。注意：这是「滑块可调的上限」，每台设备实际使用的倍数是
+     * 放大规则见 {@link MultiplierCalculator}：I/II/III 各档第 1 张按标称系数 2/4/8 全价生效，
+     * 同档多张的额外增益按配置保留比逐张衰减，避免 4 张 III 卡直接指数爆炸。
+     * 注意：这是「滑块可调的上限」，每台设备实际使用的倍数是
      * 独立的，由 {@link #getDeviceMultiplier(DeviceId)} 返回，可通过界面中的横向滚动条调整。
      */
     public int getAccelMultiplier() {
-        // 基础倍率与三档系数从配置读取（RuntimeConfig 快照）。
+        // 基础倍率、三档标称系数与同档边际收益保留比均从配置读取（RuntimeConfig 快照）。
         int result = MultiplierCalculator.compute(
                 RuntimeConfig.accelBaseMultiplier(),
                 RuntimeConfig.accelCardFactor(0), RuntimeConfig.accelCardFactor(1),
                 RuntimeConfig.accelCardFactor(2),
+                RuntimeConfig.accelCardDiminishing(),
                 upgrades.getInstalledUpgrades(ModItems.ACCELERATOR_UPGRADE_CARD_I.get()),
                 upgrades.getInstalledUpgrades(ModItems.ACCELERATOR_UPGRADE_CARD_II.get()),
                 upgrades.getInstalledUpgrades(ModItems.ACCELERATOR_UPGRADE_CARD_III.get()));

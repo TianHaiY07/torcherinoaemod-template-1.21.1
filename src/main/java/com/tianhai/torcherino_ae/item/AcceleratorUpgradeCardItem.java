@@ -12,8 +12,9 @@ import net.minecraft.world.item.TooltipFlag;
 /**
  * AE 加速器升级卡物品。
  * <p>
- * 插入加速器后，会按卡片记录的倍增系数叠加基础加速倍数（复合累乘）：
- * 每插入一张升级卡 I 封顶 ×2、升级卡 II 封顶 ×4、升级卡 III 封顶 ×8。
+ * 插入加速器后放大基础加速倍数：各档<b>第一张</b>按卡片记录的标称倍增系数生效
+ * （升级卡 I 最高 ×2、升级卡 II 最高 ×4、升级卡 III 最高 ×8）；同一档重复插入时
+ * 边际收益按配置递减（见 {@link MultiplierCalculator}），避免同档堆叠造成倍率指数爆炸。
  * <p>
  * 必须继承 AE2 的 {@link UpgradeCardItem}：AE2 的升级卡插槽
  * （{@code RestrictedInputSlot.PlacableItemType.UPGRADES}）在 mayPlace 校验时通过
@@ -26,7 +27,7 @@ import net.minecraft.world.item.TooltipFlag;
  */
 public class AcceleratorUpgradeCardItem extends UpgradeCardItem {
 
-    // 该卡每次插入时对基础加速倍数的倍增系数（I=2，II=4，III=8）。
+    // 该档升级卡的标称倍增系数（I=2，II=4，III=8）：作为同档第一张时的全价放大倍率。
     private final int multiplier;
 
     public AcceleratorUpgradeCardItem(Properties properties, int multiplier) {
@@ -35,7 +36,8 @@ public class AcceleratorUpgradeCardItem extends UpgradeCardItem {
     }
 
     /**
-     * 该卡对基础加速倍数的倍增系数。
+     * 该档升级卡的标称倍增系数（同档第一张全价生效，重复堆叠收益递减见
+     * {@link com.tianhai.torcherino_ae.core.MultiplierCalculator}）。
      */
     public int getMultiplier() {
         return multiplier;

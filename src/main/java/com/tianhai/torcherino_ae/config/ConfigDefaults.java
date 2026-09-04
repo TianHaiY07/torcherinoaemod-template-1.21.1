@@ -22,8 +22,17 @@ public final class ConfigDefaults {
     /** 基础加速倍数：未安装任何升级卡时的加速倍率。 */
     public static final int ACCEL_BASE_MULTIPLIER = 4;
 
-    /** I/II/III 三种升级卡的倍增系数（顺序对应升级卡种类）。 */
+    /** I/II/III 三种升级卡的倍增系数（顺序对应升级卡种类，作为各档「第一张」的标称放大倍率）。 */
     public static final List<Integer> ACCEL_CARD_FACTORS = List.of(2, 4, 8);
+
+    /**
+     * 同档升级卡重复堆叠时的「边际收益保留比」（0~1）。
+     * 同一档的第 1 张按 {@link #ACCEL_CARD_FACTORS} 标称系数全价放大；之后每多插一张该档卡，
+     * 其实际放大倍率按 {@code 下一张 = 1 + (上一张 - 1) × 保留比} 向 1 收敛（抑制指数爆炸）。
+     * 1.0 表示每张都按同系数放大（退化为旧的指数累乘）；越低同档堆叠收益递减越快。
+     * 默认 0.45：单卡与异档混插数值不变，满配 4 张 III 卡约 526 倍（旧公式为 16384 倍）。
+     */
+    public static final double ACCEL_DIMINISHING_RETENTION = 0.45;
 
     /** 复合后的最高倍数硬上限：-1 表示不限制（默认不限制）。 */
     public static final int ACCEL_MAX_MULTIPLIER_CAP = -1;

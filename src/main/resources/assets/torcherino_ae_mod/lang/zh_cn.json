@@ -11,7 +11,7 @@
   "item.torcherino_ae_mod.ae_accelerator_up_card_i": "AE加速器升级卡I",
   "item.torcherino_ae_mod.ae_accelerator_up_card_ii": "AE加速器升级卡II",
   "item.torcherino_ae_mod.ae_accelerator_up_card_iii": "AE加速器升级卡III",
-  "item.torcherino_ae_mod.accelerator_upgrade_card.tooltip": "每插入一张，将基础加速倍数乘以 x%s",
+  "item.torcherino_ae_mod.accelerator_upgrade_card.tooltip": "每档第一张将加速倍率乘以 x%s；同档多张时边际收益递减",
   "itemGroup.torcherino_ae_mod": "加速增强",
   "gui.torcherino_ae_mod.ae_accelerator": "AE加速器",
   "gui.torcherino_ae_mod.ae_torcherino": "AE加速火把",
