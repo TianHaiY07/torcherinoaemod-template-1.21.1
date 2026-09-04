@@ -23,7 +23,6 @@ import appeng.menu.SlotSemantics;
 import appeng.menu.guisync.GuiSync;
 import appeng.menu.implementations.MenuTypeBuilder;
 import appeng.menu.slot.AppEngSlot;
-import appeng.me.cluster.implementations.CraftingCPUCluster;
 import appeng.parts.AEBasePart;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
@@ -268,52 +267,53 @@ public class AEAcceleratorMenu extends AEBaseMenu {
     }
 
     /**
-     * 采集网络中的合成 CPU（Crafting CPU）列表。
+     * 采集网络中的合成 CPU 列表。
      * <p>
      * 合成 CPU 是多块巨型结构，AE2 通过 {@link appeng.api.networking.crafting.ICraftingService#getCpus()}
-     * 暴露它们。它们不属于 {@code IGridTickable}，不会被普通设备采集逻辑纳入；但对玩家而言
-     * 它们是重要的合成枢纽，需要展示在加速器界面中，并支持「智能加速」：选中 CPU 后，
-     * 当该 CPU 处于合成状态（busy）时，加速器会自动联动加速当前参与合成的机器。
+     * 暴露它们（AE2 每条 = 一个原版 CPU 集群；AdvancedAE 的每条 {@code AdvCraftingCPU} 是其
+     * 巨型集群的「单个任务 / 剩余容量」视图，同一集群可能对应多条）。它们不属于
+     * {@code IGridTickable}，不会被普通设备采集逻辑纳入；但对玩家而言它们是重要的合成枢纽，
+     * 需要展示在加速器界面中，并支持「智能加速」：选中 CPU 后，当该 CPU 处于合成状态（busy）时，
+     * 加速器会自动联动加速当前参与合成的机器。
      * <p>
-     * 每个 CPU 用 {@link DeviceId#ofCpu} 生成设备标识（种类标记为 CRAFTING_CPU），
-     * 与普通设备标识由种类字段天然区分。
+     * 每个 CPU 经 {@link CraftingSupport#cpuGroupOf} 解析为统一结构视图（AE2 + AdvancedAE），
+     * 用最小角坐标生成设备标识（种类标记为 CRAFTING_CPU）；同一结构对应的多条网格条目
+     * 只保留一条，与绑定卡/登记表「整组一个标记」的语义一致。
      */
     private static List<DeviceEntry> collectCpus(AEAcceleratorBlockEntity host, BlockPos origin) {
         IGrid grid = host.grid();
         if (grid == null) {
             return List.of();
         }
-        List<DeviceEntry> result = new ArrayList<>();
+        Map<String, DeviceEntry> cpusById = new LinkedHashMap<>();
         for (ICraftingCPU cpu : grid.getCraftingService().getCpus()) {
             DeviceEntry entry = toCpuEntry(cpu, host);
             if (entry != null) {
-                result.add(entry);
+                // AdvancedAE 同一巨型集群按「每个进行中的任务 + 剩余容量」拆成多条网格条目，
+                // 解析出的结构标识（最小角）相同——列表按结构只保留一条；AE2 每条 CPU 本就单条。
+                cpusById.putIfAbsent(entry.id(), entry);
             }
         }
-        return result;
+        return new ArrayList<>(cpusById.values());
     }
 
     /**
-     * 将一台合成 CPU 转成设备条目；无法解析出结构坐标（强转失败）时返回 {@code null}。
+     * 将一台合成 CPU 转成设备条目；无法解析出结构坐标时返回 {@code null}。
      * <p>
-     * 设备标识用 {@link DeviceId#ofCpu} 生成（种类标记为 CRAFTING_CPU，含维度），
-     * 供智能加速选中状态与倍数查询使用。
+     * 设备标识经 {@link CraftingSupport#cpuGroupOf} 统一解析（AE2 原版集群与 AdvancedAE
+     * 大型 CPU 结构的最小角坐标），供智能加速选中状态与倍数查询使用。
      */
     private static DeviceEntry toCpuEntry(ICraftingCPU cpu, AEAcceleratorBlockEntity host) {
-        CraftingCPUCluster cluster = CraftingSupport.asCpuCluster(cpu);
-        if (cluster == null) {
+        CraftingSupport.CpuGroup group = CraftingSupport.cpuGroupOf(dimensionOf(host), cpu);
+        if (group == null) {
             return null;
         }
-        DeviceId id = CraftingSupport.cpuDeviceId(dimensionOf(host), cpu);
-        if (id == null) {
-            return null;
-        }
-        BlockPos pos = cluster.getBoundsMin();
+        DeviceId id = group.id();
         // CPU 名称：用户自定义名优先，未命名时用通用占位文案。
         Component name = cpu.getName() != null ? cpu.getName() : Component.translatable(
                 "gui." + Torcherinoaemod.MOD_ID + ".ae_accelerator.crafting_cpu");
-        boolean active = cluster.isActive();
-        return new DeviceEntry(id.stableKey(), name, pos, active, host.isAccelerating(id),
+        boolean active = CraftingSupport.isCpuActive(cpu);
+        return new DeviceEntry(id.stableKey(), name, id.pos(), active, host.isAccelerating(id),
                 host.getDeviceMultiplier(id), AEBlocks.CRAFTING_UNIT.stack(), true);
     }
 

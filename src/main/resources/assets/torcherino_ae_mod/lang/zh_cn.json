@@ -37,11 +37,13 @@
   "item.torcherino_ae_mod.accelerator_config_card.no_target": "未绑定加速器",
   "item.torcherino_ae_mod.accelerator_config_card.bound_devices": "已绑定设备：%s",
   "item.torcherino_ae_mod.accelerator_config_card.no_devices": "未绑定设备",
-  "item.torcherino_ae_mod.accelerator_config_card.tooltip": "Shift+右键加速器进行绑定；右键设备绑定/取消；放入加速器后自动加速卡上设备",
+  "item.torcherino_ae_mod.accelerator_config_card.tooltip": "Shift+右键加速器进行绑定；右键设备或合成 CPU 组绑定/取消（CPU 整组绑定）；放入加速器后自动加速卡上设备",
   "item.torcherino_ae_mod.accelerator_config_card.bind_success": "已绑定加速器：（%s，%s，%s）",
   "item.torcherino_ae_mod.accelerator_config_card.unbind_success": "已取消绑定加速器",
   "item.torcherino_ae_mod.accelerator_config_card.bind_device_success": "设备已绑定",
   "item.torcherino_ae_mod.accelerator_config_card.unbind_device_success": "设备已取消绑定",
+  "item.torcherino_ae_mod.accelerator_config_card.bind_cpu_success": "合成 CPU 已绑定（整组）",
+  "item.torcherino_ae_mod.accelerator_config_card.unbind_cpu_success": "合成 CPU 已取消绑定",
   "item.torcherino_ae_mod.accelerator_config_card.bind_device_fail": "设备列表已满",
   "item.torcherino_ae_mod.accelerator_config_card.not_bound_hint": "请先 Shift+右键 AE 加速器进行绑定"
 }

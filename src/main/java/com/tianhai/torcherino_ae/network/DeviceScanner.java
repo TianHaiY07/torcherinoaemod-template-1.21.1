@@ -9,6 +9,8 @@ import appeng.api.AECapabilities;
 import appeng.api.networking.IGridNode;
 import appeng.api.networking.IInWorldGridNodeHost;
 import appeng.api.networking.ticking.IGridTickable;
+import appeng.api.parts.IPart;
+import appeng.api.parts.IPartHost;
 import appeng.parts.AEBasePart;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -132,14 +134,22 @@ public final class DeviceScanner {
      * 目标方块是 AE 设备（分子装配室、接口、线缆上的部件等）时，以
      * {@code AECapabilities.IN_WORLD_GRID_NODE_HOST} 能力拿到世界内网格节点宿主，
      * 遍历各相邻方向的网格节点，取第一个满足 {@link #isAcceleratableNode} 的节点。
-     * 供配置卡手持右键绑定设备、加速器目标缓存重建时判定目标是否为可加速设备（含黑名单过滤、坐标解析）。
+     * <p>
+     * <b>线缆多部件宿主</b>：输入/输出总线、破坏面板等「可加速设备」大多是挂在
+     * 线缆上的<b>部件</b>。AE2 的线缆宿主按方向查询只返回线缆自身节点（或部件的对外
+     * 节点），不会把部件的本体节点暴露出来——因此必须先按 {@link IPartHost} 枚举各侧
+     * 面的部件、再以部件自身的 {@link IGridNode} 判定，否则点击总线永远“找不到可加速
+     * 设备”。同一线缆挂了多个可加速部件时，优先命中玩家点击的面。
+     * 供配置卡手持右键绑定设备时判定目标是否为可加速设备（含黑名单过滤、坐标解析）。
      *
-     * @param be   目标方块实体（可能为 null）
-     * @param self 需要排除的自身方块实体（如加速器本体；不排除时传 null）
+     * @param be         目标方块实体（可能为 null）
+     * @param self       需要排除的自身方块实体（如加速器本体；不排除时传 null）
+     * @param preferSide 玩家点击到的面；线缆上有多个可加速部件时优先该面，可为 null
      * @return 可加速设备的网格节点，找不到时返回 {@code null}
      */
     @Nullable
-    public static IGridNode findAcceleratableNode(@Nullable BlockEntity be, @Nullable Object self) {
+    public static IGridNode findAcceleratableNode(@Nullable BlockEntity be, @Nullable Object self,
+            @Nullable Direction preferSide) {
         if (be == null) {
             return null;
         }
@@ -151,6 +161,26 @@ public final class DeviceScanner {
         IInWorldGridNodeHost host = level.getCapability(AECapabilities.IN_WORLD_GRID_NODE_HOST, be.getBlockPos(), null);
         if (host == null) {
             return null;
+        }
+        if (host instanceof IPartHost partHost) {
+            IGridNode firstHit = null;
+            for (Direction dir : Direction.values()) {
+                IPart part = partHost.getPart(dir);
+                if (part == null) {
+                    continue;
+                }
+                IGridNode node = part.getGridNode();
+                if (!isAcceleratableNode(node, self)) {
+                    continue;
+                }
+                if (dir == preferSide) {
+                    return node;
+                }
+                if (firstHit == null) {
+                    firstHit = node;
+                }
+            }
+            return firstHit;
         }
         for (Direction dir : Direction.values()) {
             IGridNode node = host.getGridNode(dir);

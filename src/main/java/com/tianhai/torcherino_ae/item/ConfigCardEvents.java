@@ -7,6 +7,7 @@ import com.tianhai.torcherino_ae.Torcherinoaemod;
 import com.tianhai.torcherino_ae.api.DeviceId;
 import com.tianhai.torcherino_ae.block.ModBlocks;
 import com.tianhai.torcherino_ae.network.DeviceScanner;
+import com.tianhai.torcherino_ae.network.crafting.CraftingSupport;
 import com.tianhai.torcherino_ae.util.DebugLog;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
@@ -29,6 +30,10 @@ import net.neoforged.neoforge.event.entity.player.UseItemOnBlockEvent;
  *       取消绑定并清空设备列表）；</li>
  *   <li>手持已绑定加速器的配置卡右键可加速 AE 设备：绑定该设备（重复右键取消），
  *       目标判定复用 {@link DeviceScanner#findAcceleratableNode}；</li>
+ *   <li>右键已成形的合成 CPU 组：把<b>整组</b>加入/移出可绑定范围（合成 CPU 由多个方块
+ *       连成，一次右键 = 一组一个标记，组外包围盒随卡记录，供高亮 pass 画整组线框；
+ *       兼容 AE2 原版 CPU 与 AdvancedAE 大型 CPU 结构的成员块，解析统一见
+ *       {@link CraftingSupport#cpuGroupOf}）。</li>
  *   <li>卡片未绑定加速器时右键设备：给出提示并拦截，避免误开设备界面。</li>
  * </ul>
  * 客户端与服务端返回相同结果、仅服务端修改数据，符合 NeoForge 事件约定。
@@ -65,12 +70,18 @@ public final class ConfigCardEvents {
         }
 
         // 情形二：目标为可加速的 AE 设备（复用与加速脉冲一致的判定：含黑名单过滤、坐标解析）。
-        IGridNode node = DeviceScanner.findAcceleratableNode(level.getBlockEntity(pos), null);
-        if (node == null) {
-            // 目标既不是加速器也不是可加速设备：放行（不干扰正常放置/使用）。
+        IGridNode node = DeviceScanner.findAcceleratableNode(level.getBlockEntity(pos), null, event.getFace());
+        if (node != null) {
+            onDeviceTargeted(event, player, card, node);
             return;
         }
-        onDeviceTargeted(event, player, card, node);
+        // 情形三：目标为已成形的合成 CPU 组（多块连成的结构，整组视为一台可绑定设备；
+        // 是 AE 加速器「能够加速」的目标之一——绑定后放入加速器即开启对该 CPU 的智能加速）。
+        if (CraftingSupport.isCpuGroupMember(level.getBlockEntity(pos))) {
+            onCpuTargeted(event, player, card, pos);
+            return;
+        }
+        // 目标既不是加速器、可加速设备也不是合成 CPU：放行（不干扰正常放置/使用）。
     }
 
     /**
@@ -143,6 +154,52 @@ public final class ConfigCardEvents {
         }
         DebugLog.info("[配置卡] 玩家 {} 对设备 {} 执行设备绑定操作（nowBound={}）",
                 player.getName().getString(), deviceId.stableKey(), nowBound);
+        event.cancelWithResult(ItemInteractionResult.CONSUME);
+    }
+
+    /**
+     * 目标为已成形的合成 CPU 组（多块结构）：服务端以<b>整组</b>为粒度绑定/取消绑定。
+     * <p>
+     * 一个 CPU 组由多个方块连成，组内任意成员块被右键都解析到同一个集群，因而只占卡片上
+     * 一条记录（标记合并）；组外包围盒（最小角为标识坐标、最大角另存）一并写入卡片，供
+     * {@code ConfigCardHighlightPass} 按 CPU 组外围画线框。客户端同样拦截（保持一致结果）。
+     */
+    private static void onCpuTargeted(UseItemOnBlockEvent event, Player player, ItemStack card, BlockPos pos) {
+        Level level = event.getLevel();
+        if (level.isClientSide()) {
+            event.cancelWithResult(ItemInteractionResult.CONSUME);
+            return;
+        }
+        // 未绑定加速器的卡不能绑定 CPU：提示并拦截，避免误开目标方块界面。
+        if (ConfigCardData.getBoundAccelerator(card) == null) {
+            player.displayClientMessage(Component.translatable(
+                    "item.torcherino_ae_mod.accelerator_config_card.not_bound_hint"), true);
+            event.cancelWithResult(ItemInteractionResult.CONSUME);
+            return;
+        }
+        // 解析被点击块所属的 CPU 组结构（AE2 原版或 AdvancedAE 大型 CPU，统一视图）：
+        // 若为 null（理论不可达，isCpuGroupMember 已通过），直接拦截而不产生任何副作用
+        // （这类方块本就没有可被打开的界面）。
+        CraftingSupport.CpuGroup group = CraftingSupport.cpuGroupOf(level.getBlockEntity(pos), false);
+        if (group == null) {
+            event.cancelWithResult(ItemInteractionResult.CONSUME);
+            return;
+        }
+        DeviceId cpuId = group.id();
+        boolean wasBound = ConfigCardData.isDeviceBound(card, cpuId);
+        boolean nowBound = ConfigCardData.toggleBoundCpu(card, cpuId, group.boundsMax());
+        if (!wasBound && !nowBound) {
+            player.displayClientMessage(Component.translatable(
+                    "item.torcherino_ae_mod.accelerator_config_card.bind_device_fail"), true);
+        } else if (nowBound) {
+            player.displayClientMessage(Component.translatable(
+                    "item.torcherino_ae_mod.accelerator_config_card.bind_cpu_success"), true);
+        } else {
+            player.displayClientMessage(Component.translatable(
+                    "item.torcherino_ae_mod.accelerator_config_card.unbind_cpu_success"), true);
+        }
+        DebugLog.info("[配置卡] 玩家 {} 对合成 CPU 组 {}（max={}）执行设备绑定操作（nowBound={}）",
+                player.getName().getString(), cpuId.stableKey(), group.boundsMax(), nowBound);
         event.cancelWithResult(ItemInteractionResult.CONSUME);
     }
 }

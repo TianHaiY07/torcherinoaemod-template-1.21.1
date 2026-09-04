@@ -8,15 +8,18 @@ import org.jetbrains.annotations.Nullable;
 import appeng.api.inventories.InternalInventory;
 import appeng.api.networking.IGrid;
 import appeng.api.networking.IGridNode;
+import appeng.api.networking.crafting.ICraftingCPU;
 import appeng.util.inv.AppEngInternalInventory;
 import appeng.util.inv.filter.IAEItemFilter;
 import com.tianhai.torcherino_ae.api.AccelSource;
 import com.tianhai.torcherino_ae.api.DeviceId;
-import com.tianhai.torcherino_ae.network.DeviceScanner;
 import com.tianhai.torcherino_ae.item.ConfigCardData;
 import com.tianhai.torcherino_ae.item.ModItems;
+import com.tianhai.torcherino_ae.network.DeviceScanner;
+import com.tianhai.torcherino_ae.network.crafting.CraftingSupport;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
@@ -135,6 +138,16 @@ public final class ConfigCardBinding {
                 continue;
             }
             DeviceId id = DeviceScanner.deviceIdOf(node.getOwner());
+            if (id != null && bound.contains(id)) {
+                inNetwork.add(id);
+            }
+        }
+        // 追加本网络内的合成 CPU 组：CPU 由多个方块连成，网格以「集群（组）」为单位暴露
+        // （getCpus() 每条 = 一组）；卡上绑定的是组标识（最小角），此处按组匹配。
+        // 注入后等同「选中该 CPU 的智能加速」：该 CPU 合成期间联动加速参与合成的机器。
+        ResourceKey<Level> dimension = host.dimension();
+        for (ICraftingCPU cpu : grid.getCraftingService().getCpus()) {
+            DeviceId id = CraftingSupport.cpuDeviceId(dimension, cpu);
             if (id != null && bound.contains(id)) {
                 inNetwork.add(id);
             }

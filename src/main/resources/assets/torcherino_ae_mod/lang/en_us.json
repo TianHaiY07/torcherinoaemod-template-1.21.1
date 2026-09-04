@@ -37,11 +37,13 @@
   "item.torcherino_ae_mod.accelerator_config_card.no_target": "No accelerator bound",
   "item.torcherino_ae_mod.accelerator_config_card.bound_devices": "Bound Devices: %s",
   "item.torcherino_ae_mod.accelerator_config_card.no_devices": "No devices bound",
-  "item.torcherino_ae_mod.accelerator_config_card.tooltip": "Shift+Right-click an AE Accelerator to bind; Right-click a device to bind/unbind it; inserting the card auto-accelerates saved devices",
+  "item.torcherino_ae_mod.accelerator_config_card.tooltip": "Shift+Right-click an AE Accelerator to bind; Right-click a device or a Crafting CPU multiblock to bind/unbind it (CPU bound as one group); inserting the card auto-accelerates saved devices",
   "item.torcherino_ae_mod.accelerator_config_card.bind_success": "Bound to Accelerator (%s, %s, %s)",
   "item.torcherino_ae_mod.accelerator_config_card.unbind_success": "Unbound from Accelerator",
   "item.torcherino_ae_mod.accelerator_config_card.bind_device_success": "Device bound",
   "item.torcherino_ae_mod.accelerator_config_card.unbind_device_success": "Device unbound",
+  "item.torcherino_ae_mod.accelerator_config_card.bind_cpu_success": "Crafting CPU bound (whole group)",
+  "item.torcherino_ae_mod.accelerator_config_card.unbind_cpu_success": "Crafting CPU unbound",
   "item.torcherino_ae_mod.accelerator_config_card.bind_device_fail": "Device list is full",
   "item.torcherino_ae_mod.accelerator_config_card.not_bound_hint": "Shift+Right-click an AE Accelerator first"
 }

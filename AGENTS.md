@@ -7,7 +7,7 @@
 - 这是一个 **Applied Energistics 2（AE2）附属模组**，含两个方块与一组物品：
   - 「AE加速器」（AE Accelerator）：AE2 机器（接入网络 + AE 能量供电 + 4 格升级卡插槽 + 1 格配置卡槽）。
   - 「AE加速火把」（AE Torcherino）：独立范围扫描方块（**不接入 AE 网络、不耗 AE 能量**），GUI 调加速倍数与 X/Z/Y 扫描范围（上限受服务端配置约束）。另有两个分级变体「AE加速火把I」（倍率上限固定 64x）与「AE加速火把II」（上限固定 324x），行为与基础火把一致、仅倍率上限不同（不受 `torcherino.maxSpeed` 配置约束）。
-  - 「加速器配置卡」：把一台加速器与网络内设备离线绑定，插入卡槽后按绑定关系自动注入/撤销加速（卡在则加速、卡走则停）。
+  - 「加速器配置卡」：把一台加速器与网络内设备/合成 CPU 组离线绑定，插入卡槽后按绑定关系自动注入/撤销加速（卡在则加速、卡走则停；CPU 组整组一个标记）。
 - 玩法：将本模组的 3 张「AE加速器升级卡」（I=×2、II=×4、III=×8，可重复插入，复合累乘）插入加速器，加速器接入 AE 网络后，可在其 GUI 中勾选网络内的 AE2 机器进行加速（每台设备可独立调节加速倍数）；GUI 还会列出网络的合成 CPU，选中后可开启「智能加速」，在 CPU 合成期间联动加速参与合成的机器。
 - 因此 **AE2 是强制运行时依赖**（通过 Modrinth Maven 引入，dev 环境亦需存在），并在 `neoforge.mods.toml` 模板中声明 `ae2`、`guideme` 两个 required 依赖。
 
@@ -67,9 +67,13 @@
   - **分级变体**：`AETorcherinoTier1BlockEntity`/`AETorcherinoTier2BlockEntity` 继承本类，经受保护的四参构造器注入各自 `BlockEntityType` 与固定默认倍率，覆写 `maxSpeed()` 返回各自上限（64/324），不受 `torcherino.maxSpeed` 配置约束；其余逻辑（范围/倍率可调、加速路径、预算）全部复用基类。`getSpeed()` 读的是被构造器赋值的 `speed` 字段，因此分级火把放置时默认即为其上限。
 - `blockentity/ConfigCardBinding.java`（与宿主同包协作：网格经 `host.grid()`、登记表经包内 `host.targetRegistry`）：
   - 单格配置卡库存过滤器：仅接受「本模组配置卡 && 已绑定本机」（`isBoundToSelf` 绑定比较含维度与坐标，异地卡片与未绑定卡一律拒绝）。
-  - `syncConfigCardDevices`（触发点：卡槽内容变化 `onHostInventoryChanged`、宿主 `onMainNodeStateChanged` 以卡槽为参显式重调）：**单次遍历网格**收集本网络内可加速设备标识与卡上绑定集合求交集（满绑定 64 条时不退化为 64 次全网格遍历）；注入「卡上且网络内且当前未被任何来源加速」的设备、按当前最高倍数记 `CONFIG_CARD` 来源；撤销「已是 CONFIG_CARD 来源但已不在卡上/网络内」的设备；变化才 `markTargetsDirty + saveChanges`。
+  - `syncConfigCardDevices`（触发点：卡槽内容变化 `onHostInventoryChanged`、宿主 `onMainNodeStateChanged` 以卡槽为参显式重调）：**单次遍历网格**收集本网络内可加速设备标识与卡上绑定集合求交集（满绑定 64 条时不退化为 64 次全网格遍历）；**并追加 `grid.getCraftingService().getCpus()` 枚举的合成 CPU 组**（CPU 多块组经 `CraftingSupport.cpuDeviceId` 取组标识，与卡上绑定交集合入同一 `inNetwork` 集——绑定的 CPU 在卡入槽后即等同「选中该 CPU 智能加速」）；注入「卡上且网络内且当前未被任何来源加速」的设备、按当前最高倍数记 `CONFIG_CARD` 来源；撤销「已是 CONFIG_CARD 来源但已不在卡上/网络内」的设备；变化才 `markTargetsDirty + saveChanges`。
   - `onHostRemoved`（宿主 `setRemoved` 调，仅服务端）：清空槽位内卡片绑定 + 扫描在线玩家全部物品槽清理绑定本机的卡（防「即插即用」配置指向已摧毁的加速器）。
   - `save/load`：库存 NBT 持久化。
+- `blockentity/ConfigCardCleanup.java`（服务端「设备/合成 CPU 组被破坏」的即时清理协调器，监听 `BlockEvent.BreakEvent`、爆炸事件、方块实体 `setRemoved` 与 `ServerTickEvent.Post`）：
+  - 普通设备（方块实体/部件）拆除：`recordRemoval` 捕获方块状态+网格 → 延迟 1 tick 确认「即时拆除」未被取消/替换 → 清理玩家背包与网络内加速器配置卡上的该设备绑定并精确撤销 `CONFIG_CARD` 登记。
+  - **合成 CPU 组（AE2 原版 + AdvancedAE 大型 CPU 软兼容）**：成员块拆除经 `CraftingSupport.cpuGroupOf(be,true)` 快照整组成员坐标走 `CpuRemoval` 整组通道，等 `CPU_SETTLE_TICKS`(4) tick 让集群「整体解散+剩余重算再成型」结算完成后观察剩余成员真实成型状态：无残留或残留拆成多个独立组 → `ConfigCardData.removeCpuBinding` 删 CPU 条目连带裁剪几何；恰一组残留 → `replaceCpuBinding` 改写为新集群最小角标识与新几何（部分破坏仍成型的自适应，卡入槽即触发重注入）。裁决只依赖结构标识/坐标，不持有集群对象引用（集群销毁后不再可信）。
+  - 自清理：卡槽内卡片经 `inventory.setItemDirect` 改写触发 `onHostInventoryChanged → syncConfigCardDevices()` 自动精确重同步；玩家背包内卡片在裁决时同步改写。
 
 ### 4.3 纯逻辑与配置域（可单测）
 
@@ -105,15 +109,15 @@
 - `network/DeviceScanner`：集中「哪些节点可加速」判定与设备身份解析，供目标缓存重建、配置卡注入、菜单采集、卡片右键绑定共用（勿在调用方各写一份）：
   - `isAcceleratableMachine(owner)`：非空且不在 `RuntimeConfig.acceleratableBlacklist()`（解析后的 Class 集合 noneMatch isInstance）。
   - `isAcceleratableNode(node, self)`：宿主非空非自身 + 可加速机器 + 可解析坐标，且加速载体之一——注册 `IGridTickable` 服务、或宿主方块实体具有服务端原版 tick（`EntityBlock.getTicker` 非空，用于「接了 AE 网络但加工走原版 tick」的机器）；**不判 isActive**（菜单要展示非活动设备，激活判定留给脉冲）。配套 `isVanillaTicking(be)` / `vanillaTicker(be)` 解析原版 tick。
-  - `findAcceleratableNode(be, self)`：Level 层 `getCapability(IN_WORLD_GRID_NODE_HOST, pos, null)` 拿宿主，遍历六向取第一个可加速节点。
+  - `findAcceleratableNode(be, self, preferSide)`：Level 层 `getCapability(IN_WORLD_GRID_NODE_HOST, pos, null)` 拿宿主；宿主为线缆等多部件宿主（`IPartHost`）时**逐侧枚举部件、以部件自身 `getGridNode()` 判定**——AE2 线缆宿主按方向查询只回线缆自身节点、不暴露部件本体节点，输入/输出总线、破坏面板等部件型可加速设备必须走部件枚举才能命中；多个候选时优先 `preferSide`（玩家点击面）。非部件宿主走原六向遍历取第一个可加速节点。
   - `deviceIdOf(owner)`：方块实体 → `DeviceId.ofBlock`；AE2 部件 → `DeviceId.ofPart`（所在线缆坐标 + 朝向）；标识带维度（防跨维度同坐标误判，含配置卡绑定）。
   - `resolveDevicePos` 私有实现不暴露。
-- `network/crafting/CraftingSupport`：合成体系辅助，**全项目唯一接触 AE2 内部类 `CraftingCPUCluster` 的地方**（其余一律经 `ICraftingCPU` API）：`cpuDeviceId(dim, cpu)`（`asCpuCluster` 安全强转后取 `cluster.getBoundsMin()`）、`asCpuCluster(cpu)`、`isCraftingMachineType(owner)` 三级判定——实现 `appeng.api.implementations.blockentities.ICraftingMachine` → 宿主所在块 `AECapabilities.CRAFTING_MACHINE` 能力（能力查询坐标由宿主类型推导：方块实体用自身坐标、部件用其线缆宿主坐标，兼容第三方部件型合成机）→ `grid.craftingMachineExtraTypes` 类型表兜底。
+- `network/crafting/CraftingSupport`：合成体系辅助，**全项目唯一解析「大型合成 CPU 结构」坐标的地方**（其余一律面向统一的 `CpuGroup` 结构视图，不感知实现）：大型 CPU 有两类来源——AE2 原版合成 CPU（成员方块 `CraftingBlockEntity`、集群 `CraftingCPUCluster`，同时实现 `IAECluster`/`ICraftingCPU`）与 **AdvancedAE 大型 CPU（可选附属，软反射兼容）**（成员方块 `AdvCraftingBlockEntity`、集群 `AdvCraftingCPUCluster` 同样实现 AE2 公共 `IAECluster`，AE2 网格经 `getCpus()` 以 `AdvCraftingCPU` 条目暴露——每条是其巨型集群的「单个任务/剩余容量」视图，同一集群多条、结构标识相同）；本文件对 AdvancedAE **零编译依赖**：`Class.forName(name,false,本类加载器)` 探测类名 + 反射其私有字段 `cluster`（条目→集群）与 `isFormed/getCluster/isActive` 方法，任一步失败视为未安装、行为与未装 AdvancedAE 完全一致；对集群只做 `IAECluster` 层面的坐标读取，不触碰其合成内部逻辑。公开 API：`cpuGroupOf(dim, cpu)`（网格条目侧结构视图：AE2 走 `instanceof CraftingCPUCluster`、Adv 走反射字段，均转 `IAECluster` 读 `getBoundsMin/Max`）、`cpuGroupOf(be, includeMembers)`（方块实体侧，仅服务端返回所属集群；`includeMembers=true` 时快照整组成员坐标，供拆除裁决观察集，常规解析传 false 免整组遍历）、`cpuDeviceId(dim, cpu)`（归一到结构最小角的稳定标识，Adv 同集群多条网格条目天然解析出同 id，与登记表/绑定卡「整组一个标记」一致）、`isCpuGroupMember(be)`（是否为已成形的合成 CPU 组成员，AE2/Adv 客户端方块状态与服务端集群判定两端一致）、`isCpuActive(cpu)`（条目在线状态，供加速器界面展示）、`isCraftingMachineType(owner)` 三级判定——实现 `appeng.api.implementations.blockentities.ICraftingMachine` → 宿主所在块 `AECapabilities.CRAFTING_MACHINE` 能力（能力查询坐标由宿主类型推导：方块实体用自身坐标、部件用其线缆宿主坐标，兼容第三方部件型合成机）→ `grid.craftingMachineExtraTypes` 类型表兜底。
 - `item/`：
   - `ModItems.java`：8 个物品（三个方块 BlockItem + 配置卡 + 3 张升级卡，卡构造传系数 2/4/8）。
   - `ModDataComponents.java`：注册 `CONFIG_CARD_DATA`（`ConfigCardData`，`persistent(CODEC).networkSynchronized(STREAM_CODEC)`）。
-  - `ConfigCardData.java`：record(accelerator, devices)，配置卡绑定数据的**纯数据契约**（读写静态方法集中于此，含 `MAX_BOUND_DEVICES=64`、`bindOrUnbindAccelerator`、`toggleBoundDevice`、`isBoundTo` 等）。客户端渲染与服务端逻辑都只依赖它，不触碰物品类。
-  - `ConfigCardEvents.java`（`@EventBusSubscriber`，无客户端限定，双端同逻辑）：`UseItemOnBlockEvent` 的 `ITEM_BEFORE_BLOCK` 阶段拦截手持配置卡交互——Shift+右键本模组加速器绑/解绑；右键可加速设备（复用 `findAcceleratableNode`）绑/解绑设备；未绑定加速器的卡右键设备提示并拦截（`not_bound_hint`）防误开设备界面；非 Shift 右键加速器放行（打开 GUI）。客户端同样 `cancelWithResult(CONSUME)` 保持结果一致、仅服务端写数据；提示走 lang + `DebugLog.info`。
+  - `ConfigCardData.java`：record(accelerator, devices, cpuBounds)，配置卡绑定数据的**纯数据契约**（读写静态方法集中于此，含 `MAX_BOUND_DEVICES=64`、`bindOrUnbindAccelerator`、`toggleBoundDevice`、`toggleBoundCpu`、`cpuBoundsMaxOf`、`isBoundTo` 等）。`cpuBounds` 为已绑定合成 CPU 组的外包围盒几何（`CpuBounds(cpu, max)`，最小角由 CPU 设备标识坐标承载），供高亮 pass 按 CPU 组外围画线框；紧凑构造器统一做「去重 + 稳定排序 + 几何/设备一致性裁剪」，`CpuBounds.CODEC` 使 NBT 可持久化。客户端渲染与服务端逻辑都只依赖它，不触碰物品类。
+  - `ConfigCardEvents.java`（`@EventBusSubscriber`，无客户端限定，双端同逻辑）：`UseItemOnBlockEvent` 的 `ITEM_BEFORE_BLOCK` 阶段拦截手持配置卡交互——Shift+右键本模组加速器绑/解绑；右键可加速设备（方块实体或线缆上的部件，复用 `findAcceleratableNode(be, self, event.getFace())`）绑/解绑设备；右键已成形的合成 CPU 组（`CraftingSupport.isCpuGroupMember`，多块连成的结构，AE2 原版与 AdvancedAE 大型 CPU 均兼容）按**整组**绑/解绑（经 `cpuGroupOf(be,false)` 取统一结构视图 `CpuGroup`、组最小角为标识、组最大角随卡记录，客户端经方块状态 FORMED 判定与服务端结论一致）；未绑定加速器的卡右键设备提示并拦截（`not_bound_hint`）防误开设备界面；非 Shift 右键加速器放行（打开 GUI）。客户端同样 `cancelWithResult(CONSUME)` 保持结果一致、仅服务端写数据；提示走 lang + `DebugLog.info`。
   - `AcceleratorUpgradeCardItem`：**必须继承 AE2 `UpgradeCardItem`**（AE2 升级卡插槽 mayPlace 硬编码 `instanceof UpgradeCardItem`，不继承放不进插槽），tooltip 追加放大效果。`AcceleratorConfigCardItem`：瘦身壳（注册 + tooltip 显示绑定状态）。
   - `ModCreativeTabs.java`：`TORCHERINO_AE_TAB` 创造栏（6 物品）。
 
@@ -126,7 +130,7 @@
   - `RenderPass` 接口（`shouldRender(mc)` 默认 true / `render(mc, alloc, pose, partialTick, frameIndex)` / `requiredBuffers()` 位标志 4=角括号 8=无深度）+ `BufferAllocator` record（`brackets`、`noDepth` 两个 `VertexConsumer` 通道）。
   - `ConfigCardRenderPipeline`：持所有 pass（构造时 `registerPass(new ConfigCardHighlightPass())`），自带两种 RenderType——`BRACKET_QUADS`（LEQUAL 深度、半透明、不剔除背面）与 `NO_DEPTH_QUADS`（NO_DEPTH_TEST）；每个通道用 `ByteBufferBuilder`（初始 1024KB，超量自动扩容）+ `BufferBuilder`；`onRenderFrame` 逐帧「重置各通道缓冲 → 按注册顺序逐个 pass → 按通道 `RenderType.draw(MeshData)` flush」。**新增世界内渲染内容时在此注册 pass**。
   - `ConfigCardRenderHandler`（`@EventBusSubscriber(value = CLIENT)`）：在 `RenderLevelStageEvent` 的 `AFTER_TRANSLUCENT_BLOCKS` 阶段（世界几何完成、深度缓冲含世界内容）以相机位置平移 PoseStack 原点，驱动单例 `PIPELINE`（pass 无状态跨帧复用）。
-  - `render/pass/ConfigCardHighlightPass`：手持配置卡（主手优先副手）时，绑定的加速器画**蓝色** `0xFF4D99FF` 角括号、绑定的设备逐台画**绿色** `0xFF3ADB3A` 角括号；`INFLATE=0.03` 向外膨胀；同 AABB 深浅双通道（brackets alpha 0.9 正常遮挡 + noDepth `DEFAULT_NO_DEPTH_ALPHA=0.10` 穿透隐约可见，`depthTestEnabled` 静态开关可关穿透作调试）；门控：配置 `client.renderBracketHighlight`（关闭连 render 阶段都跳过）+ `mc.screen == null`（开 GUI 时停止世界内高亮防穿透干扰）+ 只画当前维度目标 + `mc.level.hasChunkAt`。
+  - `render/pass/ConfigCardHighlightPass`：手持配置卡（主手优先副手）时，绑定的加速器画**蓝色** `0xFF4D99FF` 角括号、绑定的设备逐台画**绿色** `0xFF3ADB3A` 角括号；方块实体按整格框；**线缆部件**（`DeviceKind.PART`）经 `partBoxInWorld` 按**实际碰撞箱**单独画框——`IPartHost.getPart(side)` 取绑定朝向的部件，复用 `BusCollisionHelper`（以附着面为局部 z 轴）把其 1/16 局部盒换算成线缆格内世界盒、取并集再平移到坐标（与 AE2 选择框同口径），取不到部件/无几何退化为整格；合成 CPU 类绑定目标按卡上 `cpuBounds` 记录的**整组外包围盒**画线框（`drawBracket(min,max)`，无几何记录/包围盒区块未加载退化为单格，标记合并：一组只出一个框）；`INFLATE=0.03` 向外膨胀；同 AABB 深浅双通道（brackets alpha 0.9 正常遮挡 + noDepth `DEFAULT_NO_DEPTH_ALPHA=0.10` 穿透隐约可见，`depthTestEnabled` 静态开关可关穿透作调试）；门控：配置 `client.renderBracketHighlight`（关闭连 render 阶段都跳过）+ `mc.screen == null`（开 GUI 时停止世界内高亮防穿透干扰）+ 只画当前维度目标 + `mc.level.hasChunkAt`。
   - `render/util/CornerBracketRenderer`：把 AABB 轮廓渲染成 12 条带厚度的「块状」粗线段（顶环 + 底环 + 4 棱），每段由两端方帽 + 4 侧面共 6 个四边形组成（POSITION_COLOR）；厚度随距离自适应（基准 0.04 格，16 格内不变、超出线性加粗，带最小系数下限）。纯几何顶点计算下沉为公开静态 `computeSegmentQuads(...)`（退化返回 null），渲染路径只消费顶点数组，有单测覆盖（见 §10）。
   - `client/render/` 另有 `AEAcceleratorRenderer`（方块实体渲染器：接电工作叠加全亮度发光带 `LIGHTS_MODEL` + 流光粒子，粒子节奏在渲染器内维护，不污染方块实体）。
 - 其它：`client/ModScreens.java`（仿 AE2 StyleManager 的自定义样式加载器 `loadStyleDoc`，从本模组命名空间读样式 JSON）、`client/AEGuiMetrics.java`（界面度量常量集中地，有单测固化布局不变量，见 §10）。
@@ -190,6 +194,6 @@
 | `PowerModelTest` | core | 能耗公式、缓冲判定 |
 | `TargetCacheTest` | core | 周期重建、置脏即重建 |
 | `TargetRegistryTest` | core | 单记录/覆盖/来源撤销/NBT 往返 |
-| `ConfigCardDataTest` | item | 数据契约读写、MAX_BOUND_DEVICES、绑/解绑 |
+| `ConfigCardDataTest` | item | 数据契约读写、MAX_BOUND_DEVICES、绑/解绑、CPU 组外包围盒几何（记录/裁剪/编解码） |
 | `AEGuiMetricsTest` | client | 布局不变量（图标竖排相接、行高、轨道居中） |
 | `CornerBracketRendererTest` | client/render/util | 轴向方帽尺寸/斜线延长/退化/面积守恒 |
