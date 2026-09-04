@@ -191,6 +191,19 @@ JAVA_HOME=/path/to/jdk21 ./gradlew build
 
 ---
 
+## 架构图（Architecture）
+
+本模组采用严格的**单向分层**设计（`api → core → config → network → 方块实体/菜单/物品/方块 → client`），
+并让「AE 加速器」（接 ME 网络、耗 AE 能量，经 `AccelerationEngine` 脉冲加速）与「AE 加速火把」
+（独立范围扫描、不耗 AE 能量，三条加速路径并行）两条路径复用同一套可加速设备判定与倍率调控。
+完整架构见下图（点击可进入**可交互**版本，支持缩放、检索、聚焦、深浅色切换）：
+
+[![Torcherino AE 分层架构](docs/torcherino-ae-architecture.png)](docs/torcherino-ae-architecture.html)
+
+> 也可直接打开交互式架构图：[`docs/torcherino-ae-architecture.html`](docs/torcherino-ae-architecture.html)
+
+---
+
 ## 已知边界 / FAQ
 
 - **不加速网络基础设施**：存储总线、P2P 隧道、能量元件等没有 tick 工作可言的设备被有意排除
