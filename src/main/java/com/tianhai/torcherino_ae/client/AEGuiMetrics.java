@@ -21,6 +21,32 @@ public final class AEGuiMetrics {
     public static final ResourceLocation DEVICE_ENTRY_GUI = ResourceLocation.fromNamespaceAndPath(
             Torcherinoaemod.MOD_ID, "textures/gui/device_entry_gui.png");
 
+    /**
+     * 火把界面主背景素材：AE2 {@code BackgroundGenerator} 实际平铺九宫格的背景图。
+     * 命名空间归 AE2，暗色 UI 材质包常整体替换它，故文字明暗兜底需以它为判断源。
+     * 注意目录是 AE2 惯例的 guis（曾误写 textures/gui 导致采样恒失败、明暗自适应失效）。
+     */
+    public static final ResourceLocation AE2_GUI_BACKGROUND = ResourceLocation.fromNamespaceAndPath(
+            "ae2", "textures/guis/background.png");
+
+    // ===== 主界面贴图内源矩形（与样式 JSON 的 srcRect 一一对应）=====
+
+    /** 主 GUI 面板在贴图中的源矩形（样式 JSON background.srcRect，不含贴图下方素材区）。 */
+    public static final int GUI_SRC_X = 0;
+    public static final int GUI_SRC_Y = 0;
+    public static final int GUI_SRC_W = 196;
+    public static final int GUI_SRC_H = 186;
+    /** 设备列表面板背景条的源矩形（样式 JSON images.deviceListBg.srcRect）。 */
+    public static final int ROW_BG_SRC_X = 0;
+    public static final int ROW_BG_SRC_Y = 186;
+    public static final int ROW_BG_SRC_W = 139;
+    public static final int ROW_BG_SRC_H = 22;
+    /** 悬浮/加速高亮行背景的源矩形（样式 JSON images.deviceListSlotSelected.srcRect）。 */
+    public static final int ROW_SEL_SRC_X = 0;
+    public static final int ROW_SEL_SRC_Y = 208;
+    public static final int ROW_SEL_SRC_W = 139;
+    public static final int ROW_SEL_SRC_H = 22;
+
     // ===== 设备列表控件 =====
 
     /** 列表单行背景条高度（与贴图底部设备条目背景条一致）。 */

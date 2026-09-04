@@ -19,6 +19,8 @@
   "gui.torcherino_ae_mod.ae_torcherino.range_x": "X 范围",
   "gui.torcherino_ae_mod.ae_torcherino.range_z": "Z 范围",
   "gui.torcherino_ae_mod.ae_torcherino.range_y": "Y 范围",
+  "gui.torcherino_ae_mod.ae_torcherino.enabled": "加速开关",
+  "gui.torcherino_ae_mod.ae_torcherino.enabled_hint": "点击开启/关闭火把加速；关闭期间保留倍率与范围设置",
   "gui.torcherino_ae_mod.ae_accelerator.working": "工作中",
   "gui.torcherino_ae_mod.ae_accelerator.idle": "已接入网络，等待能量",
   "gui.torcherino_ae_mod.ae_accelerator.offline": "未接入网络",

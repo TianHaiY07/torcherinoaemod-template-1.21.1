@@ -8,6 +8,7 @@ import org.jetbrains.annotations.Nullable;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.AbstractWidget;
+import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.renderer.Rect2i;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.Mth;
@@ -21,6 +22,7 @@ import appeng.client.gui.style.PaletteColor;
 import appeng.client.gui.style.ScreenStyle;
 
 import com.tianhai.torcherino_ae.client.AEGuiMetrics;
+import com.tianhai.torcherino_ae.client.GuiTheme;
 import com.tianhai.torcherino_ae.menu.AETorcherinoMenu;
 
 /**
@@ -28,8 +30,15 @@ import com.tianhai.torcherino_ae.menu.AETorcherinoMenu;
  * <p>
  * 供 AE 加速火把界面（{@link AETorcherinoScreen}）调节加速倍数与三维范围使用。
  * 实现为 {@link ICompositeWidget}，由 AE 的 {@code WidgetContainer} 统一派发绘制与鼠标事件。
- * 数值范围 [min, max]；拖动/滚轮/点击轨道都会更新数值并调用 {@link Consumer} 发送到服务端，
- * 服务端下发的最新值会经 {@link #syncFromServer} 在未拖动时同步回来，避免拖动期间被覆盖。
+ * 数值范围 [min, max]；拖动/滚轮/点击轨道都会更新数值并调用 {@link Consumer} 发送到服务端。
+ * 服务端下发的最新值经 {@link #syncFromServer} 每 tick 回读，但本地输入（拖动中、以及滚轮/
+ * 点击等待服务端广播确认的窗口内）不被旧广播值覆盖，避免滑块被「拉回-跳回」造成回弹抖动。
+ * <p>
+ * 交互手感：抓住手柄本体按下时不跳值，记录「光标-手柄中心」偏移做跟随拖动（跟手）；
+ * 点击轨道空白处则跳转到该位置并开始拖动。悬停与拖动期间手柄有高亮反馈。
+ * <p>
+ * 滚轮调节：鼠标悬停在控件行内滚动即逐格调整；按住 Shift 滚动按 10 格、按住 Ctrl 滚动
+ * 按 100 格步进（Ctrl 优先于 Shift），方便在宽范围滑块（如分级火把最高 324x）上快速定位。
  * <p>
  * 上限 {@code max} 经 {@link Function} 从菜单的 {@code @GuiSync} 上限字段
  * （服务端配置 {@code torcherino.maxSpeed/maxXzRange/maxYRange} 的同步结果）读取；
@@ -50,6 +59,11 @@ public class SettingSliderWidget implements ICompositeWidget {
     private static final int TRACK_OFFSET_Y = 5;
     /** 数值文字相对轨道右端的间隙。 */
     private static final int VALUE_GAP = 5;
+    /** 手柄「抓取判定」的水平放宽量：光标落在手柄两侧该距离内均视为抓住手柄，避免误跳值。 */
+    private static final int GRAB_PAD_X = 3;
+    /** 本地待确认输入的防呆上限（tick）：正常一个网络往返内即被服务端广播确认，
+     *  超时视为服务端权威值已变化（如其它来源改值/配置收紧），放弃本地值采纳服务端值。 */
+    private static final int MAX_PENDING_TICKS = 30;
 
     private final AETorcherinoMenu menu;
     private final Component label;
@@ -70,6 +84,16 @@ public class SettingSliderWidget implements ICompositeWidget {
     private int value;
     // 是否正在拖动。
     private boolean dragging;
+    // 拖动抓取偏移：按下瞬间「光标 x - 手柄中心 x」。抓住手柄本体拖动时用它扣除，
+    // 使手柄始终跟手而不跳值；点轨道空白处开始拖动时偏移为 0（手柄中心即吸附到光标）。
+    private int dragGrabOffset;
+    // 是否存在「本地已修改、但尚未等到服务端广播确认」的输入（滚轮/点击/拖动释放）。
+    // 发送动作后到服务器广播回来前，serverGetter 仍是上一拍旧值：若 tick 同步此时用旧值
+    // 覆盖本地 value，滑块会被拉回旧位置、新广播到达又跳回，连续输入时表现为
+    // 「一卡一卡地反复移动」。因此确认前保持本地值，确认（serverGetter == value）后清除。
+    private boolean pendingLocalChange;
+    // 上述待确认状态已持续的 tick 数，超过 {@link #MAX_PENDING_TICKS} 强制收尾（见 syncFromServer）。
+    private int pendingTicks;
 
     public SettingSliderWidget(AETorcherinoMenu menu, Component label,
             Function<AETorcherinoMenu, Integer> serverGetter, Consumer<Integer> sender,
@@ -82,7 +106,13 @@ public class SettingSliderWidget implements ICompositeWidget {
         this.maxGetter = maxGetter;
         this.min = min;
         this.valueFormatter = valueFormatter;
-        this.textColor = style.getColor(PaletteColor.DEFAULT_TEXT_COLOR).toARGB();
+        // 滑块文字（标签与数值）直接画在火把界面的主背景上——该背景由 AE2 的
+        // BackgroundGenerator 以 guis/background.png 平铺，暗色材质包常把这张图整体替换。
+        // 因此文字色以「实际主背景明暗」做自适应：背景被换暗则自动提亮，
+        // 默认亮背景 + 深色调色板环境下返回基色不变。
+        int base = style.getColor(PaletteColor.DEFAULT_TEXT_COLOR).toARGB();
+        boolean mainBgDark = GuiTheme.isDark(AEGuiMetrics.AE2_GUI_BACKGROUND);
+        this.textColor = GuiTheme.ensureContrast(base, mainBgDark);
         // 初始值与上限均从服务端同步的下发字段读取。
         this.max = Math.max(min, maxGetter.apply(menu));
         this.value = clamp(serverGetter.apply(menu));
@@ -93,11 +123,17 @@ public class SettingSliderWidget implements ICompositeWidget {
     }
 
     /**
-     * 每 tick 从菜单刷新服务端下发的最新值：仅在未拖动时刷新当前值，避免覆盖玩家正在拖动的滑块。
+     * 每 tick 从菜单刷新服务端下发的最新值，规则分三种：
+     * <ul>
+     *   <li>拖动中：不回读，保证手柄跟手；</li>
+     *   <li>有本地输入待确认（滚轮/点击/刚松手）：保持本地值，等服务端广播确认，
+     *       避免被上一拍旧值覆盖造成「回弹/反复」——见 {@link #pendingLocalChange}；</li>
+     *   <li>其余：回读服务端权威值（覆盖本地显示）。</li>
+     * </ul>
      * <p>
      * 同时刷新数值上限：菜单的 {@code @GuiSync} 上限字段可能因服务端配置变更（或打开界面后
      * 首包才到达）而更新，这里把新上限应用到 {@link #max} 并对当前值重新钳制，使滑块范围
-     * 始终与服务器权威配置一致。
+     * 始终与服务器权威配置一致（该钳制在所有状态下都执行，含拖动中）。
      */
     public void syncFromServer() {
         int newMax = Math.max(min, maxGetter.apply(menu));
@@ -105,9 +141,24 @@ public class SettingSliderWidget implements ICompositeWidget {
             max = newMax;
             value = clamp(value);
         }
-        if (!dragging) {
-            this.value = clamp(serverGetter.apply(menu));
+        if (dragging) {
+            // 拖动中不回读（值已由本地连续发送，且可能领先服务器一拍）。
+            return;
         }
+        int serverValue = clamp(serverGetter.apply(menu));
+        if (pendingLocalChange && serverValue != value) {
+            // 本地输入尚未被确认：保持本地值。仅当长时间等不到确认（防呆上限内）
+            // 才视为服务端权威值已改变，放弃本地值收尾，避免状态永久悬挂。
+            if (++pendingTicks > MAX_PENDING_TICKS) {
+                pendingLocalChange = false;
+                pendingTicks = 0;
+                this.value = serverValue;
+            }
+            return;
+        }
+        pendingLocalChange = false;
+        pendingTicks = 0;
+        this.value = serverValue;
     }
 
     @Override
@@ -145,6 +196,19 @@ public class SettingSliderWidget implements ICompositeWidget {
     }
 
     /**
+     * 鼠标可点区域（相对界面原点）：轨道横向两端各放宽一个手柄宽度，竖向放宽到整行高度。
+     * 命中后即可定位/拖动滑块——扩大点击热区，行内点选不再要求精确对准 6px 高的轨道槽；
+     * 行内该区域以外的部分只吞事件、不响应（避免误触下层控件）。
+     */
+    private Rect2i getTrackHitArea() {
+        return new Rect2i(
+                bounds.getX() + TRACK_OFFSET_X - AEGuiMetrics.HANDLE_WIDTH,
+                bounds.getY(),
+                AEGuiMetrics.TRACK_WIDTH + AEGuiMetrics.HANDLE_WIDTH * 2,
+                bounds.getHeight());
+    }
+
+    /**
      * 滑块手柄左边缘 x 坐标，由当前数值映射到给定轨道上（坐标系与传入的 track 一致）。
      */
     private int getHandleX(Rect2i track) {
@@ -154,6 +218,21 @@ public class SettingSliderWidget implements ICompositeWidget {
         }
         double t = (double) (value - min) / (double) (max - min);
         return track.getX() + (int) Math.round(t * (track.getWidth() - handleWidth));
+    }
+
+    /**
+     * 悬停判定：鼠标是否真的落在滑块手柄贴图矩形上。
+     * <p>
+     * 入参 {@code mouse} 是相对界面原点的坐标，而 {@code handleX/handleY} 是背景层绘制用的
+     * 绝对窗口坐标，因此先加 {@code screenBounds} 偏移换算再比较。刻意使用手柄自身的小矩形
+     * 而非整条轨道/放宽区域（{@link #getTrackHitArea()}），避免鼠标滑到轨道空白处也被误提示
+     * 为「可抓取」——真正的可抓取部件只有手柄本身。
+     */
+    private boolean isMouseOnHandle(Point mouse, Rect2i screenBounds, int handleX, int handleY) {
+        int mouseX = mouse.getX() + screenBounds.getX();
+        int mouseY = mouse.getY() + screenBounds.getY();
+        return mouseX >= handleX && mouseX < handleX + AEGuiMetrics.HANDLE_TEX_WIDTH
+                && mouseY >= handleY && mouseY < handleY + AEGuiMetrics.HANDLE_TEX_HEIGHT;
     }
 
     @Override
@@ -204,6 +283,17 @@ public class SettingSliderWidget implements ICompositeWidget {
                         AEGuiMetrics.HANDLE_TEX_WIDTH, AEGuiMetrics.HANDLE_TEX_HEIGHT)
                 .dest(handleX, handleY)
                 .blit(guiGraphics);
+
+        // 交互反馈：拖动中始终高亮；悬停时仅当鼠标真正落在滑块手柄贴图上才高亮，
+        // 提示该处可抓取、当前正在被操作；拖动比悬停更亮以示区别。
+        // 悬停判定刻意收窄到手柄本身（而非整条轨道/放宽区域），鼠标在轨道空白处滑动时
+        // 不再被整片高亮误导为「可抓取」。
+        if (dragging || isMouseOnHandle(mouse, screenBounds, handleX, handleY)) {
+            int highlight = dragging ? 0x55FFFFFF : 0x28FFFFFF;
+            guiGraphics.fill(handleX, handleY,
+                    handleX + AEGuiMetrics.HANDLE_TEX_WIDTH,
+                    handleY + AEGuiMetrics.HANDLE_TEX_HEIGHT, highlight);
+        }
     }
 
     @Override
@@ -213,20 +303,30 @@ public class SettingSliderWidget implements ICompositeWidget {
 
     @Override
     public boolean onMouseDown(Point mousePos, int button) {
-        if (!mousePos.isIn(bounds) || button != 0) {
+        if (button != 0) {
+            return false;
+        }
+        // 点击本行（含标签/数值文字等整块行高区域）之外的其它位置不响应。
+        if (!mousePos.isIn(bounds)) {
             return false;
         }
         Rect2i track = getTrack();
-        // 点击轨道（含手柄及附近）任一位置：跳转到对应数值并开始拖动。
-        if (mousePos.getY() >= track.getY() - AEGuiMetrics.TRACK_HIT_PAD_Y
-                && mousePos.getY() <= track.getY() + track.getHeight() + AEGuiMetrics.TRACK_HIT_PAD_Y
-                && mousePos.getX() >= track.getX() - AEGuiMetrics.HANDLE_WIDTH / 2
-                && mousePos.getX() <= track.getX() + track.getWidth() + AEGuiMetrics.HANDLE_WIDTH / 2) {
-            setFromX(mousePos.getX());
-            dragging = true;
+        // 仅轨道附近（整行高 + 横向放宽）才接受定位/拖动。
+        if (!mousePos.isIn(getTrackHitArea())) {
+            // 点击行内非轨道区域：吞掉事件，避免误触下层。
             return true;
         }
-        // 点击控件内轨道以外区域：吞掉事件，避免误触下层。
+        // 抓住手柄本体（含两侧放宽）：不跳值，记录光标相对手柄中心的偏移做跟随拖动，
+        // 保证手柄任意部位按下都跟手，不会因「中心吸附光标」而瞬间跳变。
+        if (isOnHandle(mousePos.getX())) {
+            int handleCenterX = getHandleX(track) + AEGuiMetrics.HANDLE_WIDTH / 2;
+            dragGrabOffset = mousePos.getX() - handleCenterX;
+        } else {
+            // 点击轨道空白处：跳转到该位置（手柄中心吸附到光标）并开始拖动。
+            dragGrabOffset = 0;
+            setFromX(mousePos.getX());
+        }
+        dragging = true;
         return true;
     }
 
@@ -234,6 +334,7 @@ public class SettingSliderWidget implements ICompositeWidget {
     public boolean onMouseUp(Point mousePos, int button) {
         if (button == 0 && dragging) {
             dragging = false;
+            dragGrabOffset = 0;
             return true;
         }
         return false;
@@ -249,7 +350,8 @@ public class SettingSliderWidget implements ICompositeWidget {
         if (!dragging || button != 0) {
             return false;
         }
-        setFromX(mousePos.getX());
+        // 拖动期间光标可能离开轨道/控件行，仍按扣除抓取偏移后的 x 换算并钳制数值。
+        setFromX(mousePos.getX() - dragGrabOffset);
         return true;
     }
 
@@ -258,16 +360,41 @@ public class SettingSliderWidget implements ICompositeWidget {
         if (!mousePos.isIn(bounds)) {
             return false;
         }
-        int next = clamp(value + (delta > 0 ? 1 : -1));
+        // 基准步数 = 滚轮事件的实际幅度（常规鼠标每格为 1；高分辨率滚轮/触控板可能一次带多格），
+        // 先按实际幅度走，避免丢弃大步进事件。
+        int amount = Math.max(1, (int) Math.round(Math.abs(delta)));
+        // 修饰键放大步进：按住 Ctrl 滚动按 100 格、按住 Shift 滚动按 10 格（Ctrl 优先于 Shift），
+        // 便于在宽范围滑块（如分级火把最高 324x）上快速定位；不按修饰键即逐格微调。
+        if (Screen.hasControlDown()) {
+            amount *= 100;
+        } else if (Screen.hasShiftDown()) {
+            amount *= 10;
+        }
+        int next = clamp(value + (delta > 0 ? amount : -amount));
         if (next != value) {
             value = next;
             sender.accept(value);
+            // 标记待服务端确认，避免 tick 同步用旧广播值把刚滚动的值拉回去（见 syncFromServer）。
+            pendingLocalChange = true;
+            pendingTicks = 0;
         }
         return true;
     }
 
     /**
+     * 光标 x 是否落在手柄本体上（含两侧 {@link #GRAB_PAD_X} 的放宽，便于抓取小手柄）。
+     */
+    private boolean isOnHandle(int mouseX) {
+        Rect2i track = getTrack();
+        int handleX = getHandleX(track);
+        return mouseX >= handleX - GRAB_PAD_X
+                && mouseX <= handleX + AEGuiMetrics.HANDLE_WIDTH + GRAB_PAD_X;
+    }
+
+    /**
      * 根据鼠标 x 坐标计算新的数值（钳制在 min..max），变化时实时发送到服务端。
+     * <p>
+     * 调用方负责扣除 {@link #dragGrabOffset}（抓取手柄时），因此入参即为手柄中心的目标 x。
      */
     private void setFromX(int mouseX) {
         Rect2i track = getTrack();
@@ -282,6 +409,10 @@ public class SettingSliderWidget implements ICompositeWidget {
         if (next != value) {
             value = next;
             sender.accept(value);
+            // 点击跳转/拖动改值均标记待确认：拖动松开后一拍内服务端广播未到，
+            // 若不保护会被旧值回弹一次（见 syncFromServer 与 {@link #pendingLocalChange}）。
+            pendingLocalChange = true;
+            pendingTicks = 0;
         }
     }
 

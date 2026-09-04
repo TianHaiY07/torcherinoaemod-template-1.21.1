@@ -8,13 +8,17 @@ import appeng.client.Point;
 import appeng.client.gui.AEBaseScreen;
 import appeng.client.gui.style.PaletteColor;
 import appeng.client.gui.style.ScreenStyle;
+import appeng.client.gui.style.Text;
 import appeng.client.gui.widgets.AETextField;
 import appeng.client.gui.widgets.Scrollbar;
 import appeng.client.gui.widgets.UpgradesPanel;
 import appeng.menu.SlotSemantics;
 import com.tianhai.torcherino_ae.Torcherinoaemod;
 import com.tianhai.torcherino_ae.blockentity.AEAcceleratorBlockEntity;
+import com.tianhai.torcherino_ae.client.AEGuiMetrics;
+import com.tianhai.torcherino_ae.client.GuiTheme;
 import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.renderer.Rect2i;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.player.Inventory;
 
@@ -51,9 +55,15 @@ public class AEAcceleratorScreen extends AEBaseScreen<AEAcceleratorMenu> {
     // 搜索输入框（AE 组件）。
     private final AETextField searchField;
 
-    // 状态文字颜色（样式调色板）。
+    // 状态文字 / 标题文字颜色：取样式调色板基准色后，按界面主背景实际明暗做自动对比调整
+    // （亮背景 + 默认深色调色板环境下返回原色，观感与原先一致；暗色材质包下自动反衬）。
     private final int mutedTextColor;
     private final int errorColor;
+    private final int titleColor;
+
+    // 样式 JSON text 段中的文本条目 id（dialog_title / player_inventory_title）。
+    private static final String TEXT_ID_DIALOG_TITLE = "dialog_title";
+    private static final String TEXT_ID_PLAYER_INVENTORY_TITLE = "player_inventory_title";
 
     public AEAcceleratorScreen(AEAcceleratorMenu menu, Inventory playerInventory, Component title, ScreenStyle style) {
         super(menu, playerInventory, title, style);
@@ -82,17 +92,26 @@ public class AEAcceleratorScreen extends AEBaseScreen<AEAcceleratorMenu> {
                 "gui." + Torcherinoaemod.MOD_ID + ".ae_accelerator.search"));
         this.searchField.setResponder(deviceList::setFilter);
 
-        // 状态文字颜色取自样式调色板，与 AE 界面文字一致。
-        this.mutedTextColor = style.getColor(PaletteColor.MUTED_TEXT_COLOR).toARGB();
-        this.errorColor = style.getColor(PaletteColor.ERROR).toARGB();
+        // 标题（dialog_title）与玩家物品栏标题（player_inventory_title）默认由 AEBaseScreen
+        // 的样式文本渲染管线绘制，其颜色要么写死在样式 JSON、要么取自调色板，无法在运行时
+        // 感知背景明暗；因此隐藏这两条默认文本，改由 drawFG 按「主背景明暗自适应色」自绘
+        // （见 drawStyledText）。样式 JSON 的 text 条目仍负责提供默认翻译文案与坐标布局
+        // （自绘时从其中 resolve 位置），主题包依旧可通过覆写样式调整标题位置。
+        setTextHidden(TEXT_ID_DIALOG_TITLE, true);
+        setTextHidden(TEXT_ID_PLAYER_INVENTORY_TITLE, true);
 
-        // 标题优先使用菜单标题（方块名）；菜单标题为空时（例如菜单未携带 title），
-        // 保留样式 JSON 中 dialog_title 的默认文本（block.torcherino_ae_mod.ae_accelerator），
-        // 避免空文本把默认标题覆盖掉。参考 AE2 MEStorageScreen 的同样处理。
-        // 玩家物品栏标题交由样式 JSON（player_inventory_title）显示。
-        if (!title.getString().isEmpty()) {
-            setTextContent("dialog_title", title);
-        }
+        // 主背景明暗：采样样式 JSON background 贴图区域（经资源包合并后的实际生效文件）。
+        boolean mainBgDark = GuiTheme.isDarkRegion(AEGuiMetrics.ACCELERATOR_GUI,
+                AEGuiMetrics.GUI_SRC_X, AEGuiMetrics.GUI_SRC_Y,
+                AEGuiMetrics.GUI_SRC_W, AEGuiMetrics.GUI_SRC_H);
+        // 状态/标题文字取样式调色板基准色后按主背景明暗自适应；默认亮背景 + 深色调色板
+        // 环境下 ensureContrast 返回基色不变，视觉与原先一致。
+        this.mutedTextColor = GuiTheme.ensureContrast(
+                style.getColor(PaletteColor.MUTED_TEXT_COLOR).toARGB(), mainBgDark);
+        this.errorColor = GuiTheme.ensureContrast(
+                style.getColor(PaletteColor.ERROR).toARGB(), mainBgDark);
+        this.titleColor = GuiTheme.ensureContrast(
+                style.getColor(PaletteColor.DEFAULT_TEXT_COLOR).toARGB(), mainBgDark);
     }
 
     /**
@@ -141,6 +160,18 @@ public class AEAcceleratorScreen extends AEBaseScreen<AEAcceleratorMenu> {
      */
     @Override
     public void drawFG(GuiGraphics guiGraphics, int offsetX, int offsetY, int mouseX, int mouseY) {
+        // 标题与物品栏标题：两条样式文本已在构造器 setTextHidden（避免与 AEBaseScreen 默认渲染重复），
+        // 这里自绘以便使用「主背景明暗自适应」后的 titleColor。菜单标题为空时回退到样式 JSON 文案。
+        Text dialogTitle = style.getText().get(TEXT_ID_DIALOG_TITLE);
+        if (dialogTitle != null) {
+            Component heading = title.getString().isEmpty() ? dialogTitle.getText() : title;
+            drawStyledText(guiGraphics, dialogTitle, heading, titleColor);
+        }
+        Text inventoryTitle = style.getText().get(TEXT_ID_PLAYER_INVENTORY_TITLE);
+        if (inventoryTitle != null) {
+            drawStyledText(guiGraphics, inventoryTitle, inventoryTitle.getText(), titleColor);
+        }
+
         AEAcceleratorBlockEntity host = menu.getHost();
         boolean online = host != null && host.isOnline();
         boolean working = host != null && host.isWorking();
@@ -178,5 +209,20 @@ public class AEAcceleratorScreen extends AEBaseScreen<AEAcceleratorMenu> {
         int statusX = 170 - font.width(status);
         int statusY = 91;
         guiGraphics.drawString(font, status, statusX, statusY, color, false);
+    }
+
+    /**
+     * 按样式文本条目 resolve 出的坐标绘制一段文字，颜色由调用方传入。
+     * <p>
+     * 与 AEBaseScreen 绘制样式文本一致，本方法在 {@code renderLabels}（GUI 坐标已平移到界面原点）
+     * 的坐标空间内绘制。样式 JSON 当前未配置 align / scale / maxWidth，这里不额外处理这些特性；
+     * 若未来样式加入它们，需要同步补全对应渲染逻辑。
+     */
+    private void drawStyledText(GuiGraphics guiGraphics, Text entry, Component content, int color) {
+        if (entry.getPosition() == null) {
+            return;
+        }
+        Point point = entry.getPosition().resolve(new Rect2i(0, 0, imageWidth, imageHeight));
+        guiGraphics.drawString(font, content, point.getX(), point.getY(), color, false);
     }
 }

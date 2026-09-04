@@ -26,6 +26,7 @@ import appeng.client.gui.widgets.Scrollbar;
 
 import com.tianhai.torcherino_ae.Torcherinoaemod;
 import com.tianhai.torcherino_ae.client.AEGuiMetrics;
+import com.tianhai.torcherino_ae.client.GuiTheme;
 import com.tianhai.torcherino_ae.config.RuntimeConfig;
 
 /**
@@ -68,10 +69,14 @@ public class DeviceListWidget implements ICompositeWidget {
     // 悬浮高亮 Blitter（本模组 GUI 贴图内的单行区域，样式 JSON images.deviceListSlotSelected）。
     private final Blitter selection;
 
-    // 行文字颜色（样式调色板）。
+    // 行文字颜色（样式调色板基准色；实际绘制前经 GuiTheme.ensureContrast 做明暗自适应）。
     private final int textColor;
     private final int mutedTextColor;
-    private final int accentColor;
+
+    // 两种行底色的明暗判定（构造期采样贴图实际生效区域）：普通行条底色与
+    // 悬浮/加速高亮底色。暗色材质包若整体替换本贴图也能即时反映。
+    private final boolean rowBgDark;
+    private final boolean rowHighlightDark;
 
     // 搜索过滤关键字（空串表示不过滤）。由搜索文本框的回调设置。
     private String filter = "";
@@ -106,7 +111,13 @@ public class DeviceListWidget implements ICompositeWidget {
         this.selection = style.getImage("deviceListSlotSelected");
         this.textColor = style.getColor(PaletteColor.DEFAULT_TEXT_COLOR).toARGB();
         this.mutedTextColor = style.getColor(PaletteColor.MUTED_TEXT_COLOR).toARGB();
-        this.accentColor = style.getColor(PaletteColor.SELECTION_COLOR).toARGB();
+        // 采样两种行底色的实际明暗（区域源矩形与样式 JSON 的 srcRect 一致）。
+        this.rowBgDark = GuiTheme.isDarkRegion(AEGuiMetrics.ACCELERATOR_GUI,
+                AEGuiMetrics.ROW_BG_SRC_X, AEGuiMetrics.ROW_BG_SRC_Y,
+                AEGuiMetrics.ROW_BG_SRC_W, AEGuiMetrics.ROW_BG_SRC_H);
+        this.rowHighlightDark = GuiTheme.isDarkRegion(AEGuiMetrics.ACCELERATOR_GUI,
+                AEGuiMetrics.ROW_SEL_SRC_X, AEGuiMetrics.ROW_SEL_SRC_Y,
+                AEGuiMetrics.ROW_SEL_SRC_W, AEGuiMetrics.ROW_SEL_SRC_H);
         // 行尾状态图标的两态 Blitter：贴图素材区域见 AEGuiMetrics.MARK_*。
         this.idleMarkIcon = Blitter.texture(AEGuiMetrics.ACCELERATOR_GUI)
                 .src(AEGuiMetrics.MARK_TEX_X, AEGuiMetrics.MARK_TEX_Y_IDLE,
@@ -347,6 +358,11 @@ public class DeviceListWidget implements ICompositeWidget {
             // 行内容与背景条共用同一套行定位（整体上移 2px、条间 1px 间隙）。
             int rowY = y + AEGuiMetrics.LIST_OFFSET_Y + (i - startRow) * (AEGuiMetrics.ROW_HEIGHT + AEGuiMetrics.ROW_SPACING);
 
+            // 该行是否被鼠标悬浮（悬浮高亮在行循环前已统一铺底色，因此要在绘制文字前判定，
+            // 以便文字颜色按「实际所在行底色」自适应）。
+            boolean rowHovered = mouse.isIn(bounds)
+                    && (i - startRow) == rowAt(mouse.getY() - bounds.getY());
+
             // 正在被加速的设备行：先铺一层选中态背景，使其在列表中直观可辨。
             if (device.accelerated()) {
                 selection.copy()
@@ -373,14 +389,16 @@ public class DeviceListWidget implements ICompositeWidget {
                 displayName = font.plainSubstrByWidth(name, Math.max(0, textMaxWidth - font.width("..."))) + "...";
             }
             // 加速中设备不再用强调色高亮文字，一律用默认文字色；非活动设备用弱化色。
-            int color = (device.accelerated() || device.active()) ? textColor : mutedTextColor;
+            // 文字落点可能处于「普通行条」或「悬浮/加速高亮条」之上，按实际底色做明暗自适应：
+            // 默认亮背景+深色调色板环境下该函数保持基色不变，视觉与原先一致。
+            int baseColor = (device.accelerated() || device.active()) ? textColor : mutedTextColor;
+            boolean rowHighlight = device.accelerated() || rowHovered;
+            int color = GuiTheme.ensureContrast(baseColor, rowHighlight ? rowHighlightDark : rowBgDark);
             guiGraphics.drawString(font, displayName, textX,
                     rowY + (AEGuiMetrics.ROW_HEIGHT - font.lineHeight) / 2, color, false);
 
             // 行尾加速状态图标：未加速绘制贴图 (0,230,12,12)，加速中绘制 (0,242,12,11)。
             // 鼠标悬浮该行时，图标同样切换为「加速中」形式（无论是否真正在加速）。
-            boolean rowHovered = mouse.isIn(bounds)
-                    && (i - startRow) == rowAt(mouse.getY() - bounds.getY());
             boolean accelShown = device.accelerated() || rowHovered;
             int markHeight = accelShown ? AEGuiMetrics.MARK_TEX_HEIGHT_ACCEL : AEGuiMetrics.MARK_TEX_HEIGHT_IDLE;
             int markX = x + bounds.getWidth() - AEGuiMetrics.MARK_TEX_WIDTH - AEGuiMetrics.MARK_RIGHT_PAD;

@@ -1,40 +1,37 @@
 {
-  "palette": {
-    "DEFAULT_TEXT_COLOR": "#413f54",
-    "MUTED_TEXT_COLOR": "#878fa5",
-    "SELECTION_COLOR": "#ace9ff",
-    "TEXTFIELD_PLACEHOLDER": "#dedfe3",
-    "TEXTFIELD_SELECTION": "#FF0000FF",
-    "TEXTFIELD_ERROR": "#FF1900",
-    "TEXTFIELD_TEXT": "#f2f2f2",
-    "ERROR": "#CE2401"
-  },
+  "includes": ["ae2:screens/common/palette.json"],
   "generatedBackground": {
     "width": 196,
-    "height": 100
+    "height": 120
   },
   "widgets": {
-    "speed": {
+    "enabled": {
       "left": 8,
       "top": 18,
       "width": 174,
       "height": 17
     },
-    "xRange": {
+    "speed": {
       "left": 8,
       "top": 37,
       "width": 174,
       "height": 17
     },
-    "zRange": {
+    "xRange": {
       "left": 8,
       "top": 56,
       "width": 174,
       "height": 17
     },
-    "yRange": {
+    "zRange": {
       "left": 8,
       "top": 75,
+      "width": 174,
+      "height": 17
+    },
+    "yRange": {
+      "left": 8,
+      "top": 94,
       "width": 174,
       "height": 17
     }

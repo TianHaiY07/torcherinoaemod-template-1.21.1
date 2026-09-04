@@ -19,6 +19,8 @@
   "gui.torcherino_ae_mod.ae_torcherino.range_x": "X Range",
   "gui.torcherino_ae_mod.ae_torcherino.range_z": "Z Range",
   "gui.torcherino_ae_mod.ae_torcherino.range_y": "Y Range",
+  "gui.torcherino_ae_mod.ae_torcherino.enabled": "Enabled",
+  "gui.torcherino_ae_mod.ae_torcherino.enabled_hint": "Click to toggle torch acceleration; multiplier and ranges are kept while off",
   "gui.torcherino_ae_mod.ae_accelerator.working": "Working",
   "gui.torcherino_ae_mod.ae_accelerator.idle": "Connected, waiting for power",
   "gui.torcherino_ae_mod.ae_accelerator.offline": "Not connected to network",

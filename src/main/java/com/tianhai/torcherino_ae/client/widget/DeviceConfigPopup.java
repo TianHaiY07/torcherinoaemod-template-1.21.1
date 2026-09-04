@@ -10,6 +10,7 @@ import org.jetbrains.annotations.Nullable;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.AbstractWidget;
+import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.renderer.Rect2i;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.Mth;
@@ -24,6 +25,7 @@ import appeng.client.gui.style.ScreenStyle;
 
 import com.tianhai.torcherino_ae.Torcherinoaemod;
 import com.tianhai.torcherino_ae.client.AEGuiMetrics;
+import com.tianhai.torcherino_ae.client.GuiTheme;
 
 /**
  * 设备加速倍数配置弹窗。
@@ -38,6 +40,9 @@ import com.tianhai.torcherino_ae.client.AEGuiMetrics;
  * 实现为 {@link ICompositeWidget} 挂载到加速器界面：绘制面板、标题与滑块手柄（手柄取自
  * 贴图 {@code (0,32,15,12)} 的小方块），并通过 {@code wantsAllMouseDownEvents} 等接口
  * 拦截全部鼠标事件，避免点击穿透。
+ * <p>
+ * 滚轮调节：鼠标悬停在弹窗范围内滚动即逐格调整倍数；按住 Shift 滚动按 10 格、按住
+ * Ctrl 滚动按 100 格步进（Ctrl 优先于 Shift），便于在高倍率设备上快速定位。
  */
 public class DeviceConfigPopup implements ICompositeWidget {
 
@@ -69,8 +74,14 @@ public class DeviceConfigPopup implements ICompositeWidget {
     public DeviceConfigPopup(AEAcceleratorMenu menu, DeviceListWidget deviceList, ScreenStyle style) {
         this.menu = menu;
         this.deviceList = deviceList;
-        // 素材面板为浅色背景，文字使用界面默认深色。
-        this.textColor = style.getColor(PaletteColor.DEFAULT_TEXT_COLOR).toARGB();
+        // 素材面板默认是浅色背景，文字使用界面默认深色；但对暗色 UI 材质包做明暗自适应：
+        // 若面板实际偏暗则自动提亮文字，若调色板被主题包整体改浅（浅字 + 浅面板）则自动压暗。
+        // 默认环境下返回基色不变，观感与原先一致。
+        int base = style.getColor(PaletteColor.DEFAULT_TEXT_COLOR).toARGB();
+        boolean panelDark = GuiTheme.isDarkRegion(AEGuiMetrics.DEVICE_ENTRY_GUI,
+                AEGuiMetrics.POPUP_SRC_X, AEGuiMetrics.POPUP_SRC_Y,
+                AEGuiMetrics.POPUP_WIDTH, AEGuiMetrics.POPUP_HEIGHT);
+        this.textColor = GuiTheme.ensureContrast(base, panelDark);
     }
 
     /**
@@ -276,8 +287,18 @@ public class DeviceConfigPopup implements ICompositeWidget {
         if (!isOpen()) {
             return false;
         }
+        // 基准步数 = 滚轮事件的实际幅度（常规鼠标每格为 1；高分辨率滚轮/触控板可能一次带多格），
+        // 先按实际幅度走，避免丢弃大步进事件。
+        int amount = Math.max(1, (int) Math.round(Math.abs(delta)));
+        // 修饰键放大步进：按住 Ctrl 滚动按 100 格、按住 Shift 滚动按 10 格（Ctrl 优先于 Shift），
+        // 便于在高倍率设备上快速定位；不按修饰键即逐格微调。
+        if (Screen.hasControlDown()) {
+            amount *= 100;
+        } else if (Screen.hasShiftDown()) {
+            amount *= 10;
+        }
         int max = getMaxMultiplier();
-        int next = Mth.clamp(multiplier + (delta > 0 ? 1 : -1), 1, max);
+        int next = Mth.clamp(multiplier + (delta > 0 ? amount : -amount), 1, max);
         if (next != multiplier) {
             multiplier = next;
             sendMultiplier();

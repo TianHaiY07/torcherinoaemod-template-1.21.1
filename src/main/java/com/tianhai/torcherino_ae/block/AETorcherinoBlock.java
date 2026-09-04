@@ -11,6 +11,8 @@ import com.tianhai.torcherino_ae.blockentity.AETorcherinoBlockEntity;
 import com.tianhai.torcherino_ae.menu.AETorcherinoMenu;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.sounds.SoundEvents;
+import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.ItemInteractionResult;
@@ -28,7 +30,9 @@ import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.StateDefinition;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
+import net.minecraft.world.level.block.state.properties.BooleanProperty;
 import net.minecraft.world.level.block.state.properties.DirectionProperty;
+import net.minecraft.world.level.block.state.properties.Property;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.shapes.CollisionContext;
 import net.minecraft.world.phys.shapes.Shapes;
@@ -43,13 +47,18 @@ import net.minecraft.world.phys.shapes.VoxelShape;
  * 其 ticker（原版熔炉、第三方机器等），可随机 tick 的方块重复调用随机 tick——三条路径对同一目标
  * 并行生效，详见 {@link com.tianhai.torcherino_ae.blockentity.AETorcherinoBlockEntity}。
  * <p>
- * 模型使用 {@code ae_torcherino.json}（朝上的火把模型）；方块拥有 6 个朝向（上/下/东南西北），
+ * 模型按「总开关」切换：总开关开启时使用 {@code ae_torcherino.json}（火焰亮起的模型），
+ * 关闭（方块实体 {@code enabled=false}）时由方块实体驱动方块状态切换为
+ * {@code ae_torcherino_off.json}（熄灭模型）；方块拥有 6 个朝向（上/下/东南西北），
  * 通过 {@link #FACING} 属性控制，选择箱随朝向旋转。无碰撞体积（可穿行），不产生火把火焰粒子。
  */
 public class AETorcherinoBlock extends Block implements EntityBlock {
 
     // 6 个朝向属性（上/下/东南西北）。
     public static final DirectionProperty FACING = BlockStateProperties.FACING;
+
+    // 总开关（开/关）：false 时方块实体暂停一切加速，方块状态随之切到熄灭（off）模型。
+    public static final BooleanProperty ENABLED = BooleanProperty.create("enabled");
 
     // 本方块对应的方块实体类型（用于 getTicker 类型校验）与工厂（用于 newBlockEntity）。
     // 以 Supplier 形式保存，避免在 ModBlocks 静态初始化阶段解析 ModBlockEntities 的
@@ -85,7 +94,9 @@ public class AETorcherinoBlock extends Block implements EntityBlock {
         super(properties);
         this.blockEntityType = blockEntityType;
         this.blockEntityFactory = blockEntityFactory;
-        this.registerDefaultState(this.stateDefinition.any().setValue(FACING, Direction.UP));
+        this.registerDefaultState(this.stateDefinition.any()
+                .setValue(FACING, Direction.UP)
+                .setValue(ENABLED, true));
     }
 
     /**
@@ -99,7 +110,7 @@ public class AETorcherinoBlock extends Block implements EntityBlock {
 
     @Override
     protected void createBlockStateDefinition(StateDefinition.Builder<Block, BlockState> builder) {
-        builder.add(FACING);
+        builder.add(FACING, ENABLED);
     }
 
     /**
@@ -172,6 +183,11 @@ public class AETorcherinoBlock extends Block implements EntityBlock {
     @Override
     protected InteractionResult useWithoutItem(BlockState state, Level level, BlockPos pos, Player player,
             BlockHitResult hitResult) {
+        // Shift+右键（空手）：不开界面，直接翻转总开关（见 toggleEnabled）。
+        if (player.isShiftKeyDown()) {
+            toggleEnabled(level, pos, player);
+            return InteractionResult.sidedSuccess(level.isClientSide());
+        }
         if (!level.isClientSide()) {
             openMenu(level, pos, player);
         }
@@ -181,10 +197,36 @@ public class AETorcherinoBlock extends Block implements EntityBlock {
     @Override
     protected ItemInteractionResult useItemOn(ItemStack stack, BlockState state, Level level, BlockPos pos,
             Player player, InteractionHand hand, BlockHitResult hitResult) {
+        // Shift+右键（手持物品）：与空手一致优先翻转总开关，并吃掉本次点击，
+        // 避免继续触发手中物品的放置/使用逻辑。
+        if (player.isShiftKeyDown()) {
+            toggleEnabled(level, pos, player);
+            return ItemInteractionResult.sidedSuccess(level.isClientSide());
+        }
         if (!level.isClientSide()) {
             openMenu(level, pos, player);
         }
         return ItemInteractionResult.sidedSuccess(level.isClientSide());
+    }
+
+    /**
+     * Shift+右键快捷开关：把火把「总开关」翻转一次（开启→熄灭 / 关闭→点亮），不开界面。
+     * 仅服务端执行权威变更（方块实体 {@code enabled} 字段 → 方块状态切换 on/off 模型 →
+     * 存档落盘 → 广播给客户端）；客户端调用只作命中反馈，状态以服务端下发为准。
+     * <p>
+     * 附带播放一声 UI 按钮点击音（音调随开关方向变化：开启 1.0、关闭 0.7），让不打开
+     * 界面的快捷操作也有明确的听觉反馈。
+     */
+    private void toggleEnabled(Level level, BlockPos pos, Player player) {
+        if (level.isClientSide()) {
+            return;
+        }
+        if (level.getBlockEntity(pos) instanceof AETorcherinoBlockEntity torch) {
+            boolean next = !torch.isEnabled();
+            torch.setEnabled(next);
+            level.playSound(null, pos, SoundEvents.UI_BUTTON_CLICK.value(), SoundSource.BLOCKS, 0.6F,
+                    next ? 1.0F : 0.7F);
+        }
     }
 
     private void openMenu(Level level, BlockPos pos, Player player) {
@@ -192,6 +234,27 @@ public class AETorcherinoBlock extends Block implements EntityBlock {
         if (be instanceof AETorcherinoBlockEntity torch) {
             MenuOpener.open(AETorcherinoMenu.TYPE, player, MenuLocators.forBlockEntity(torch));
         }
+    }
+
+    /**
+     * 把「总开关」位写入方块状态并返回（供方块实体在开关变化时驱动客户端切换 on/off 模型）。
+     * <p>
+     * 兼容旧档：升级前版本世界存档中的方块状态不含 {@code enabled} 属性（属性本次新增），
+     * 直接 {@code setValue} 会抛「该状态不含此属性」异常；此时以默认状态为底、把旧状态中
+     * 仍然存在的属性（如朝向）逐一复制过来，再写入目标开关值。正常状态仅替换开关位即可。
+     */
+    @SuppressWarnings({ "unchecked", "rawtypes" })
+    public static BlockState applyEnabledState(BlockState state, boolean enabled) {
+        if (state.hasProperty(ENABLED)) {
+            return state.setValue(ENABLED, enabled);
+        }
+        BlockState rebuilt = state.getBlock().defaultBlockState();
+        for (Map.Entry<Property<?>, Comparable<?>> entry : state.getValues().entrySet()) {
+            if (rebuilt.hasProperty(entry.getKey())) {
+                rebuilt = rebuilt.setValue((Property) entry.getKey(), (Comparable) entry.getValue());
+            }
+        }
+        return rebuilt.setValue(ENABLED, enabled);
     }
 
     /**

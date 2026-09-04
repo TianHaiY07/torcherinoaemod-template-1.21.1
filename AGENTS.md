@@ -41,13 +41,13 @@
   - 配置注册：`modContainer.registerConfig` 排队注册 Server 段 + 仅客户端注册 Client 段。**registerConfig 只是排队**——FML 在 mod 构造完成后统一加载配置文件，构造器内不可读 `ConfigValue`（抛 "Cannot get config value before config is loaded"），故构造器不做 refresh，RuntimeConfig 字段初值即 `ConfigDefaults` 基线。随后监听 `ModConfigEvent.Loading` / `Reloading` → `applyConfig`（按 Spec 匹配分别 `RuntimeConfig.refreshServer/refreshClient`；服务端段刷新时同步 `DebugLog.setEnabled`）。
   - `registerCapabilities`：为加速器方块实体注册 `IN_WORLD_GRID_NODE_HOST` 能力——AE2 只为其自身方块注册该能力，第三方方块必须自注册，否则无法接线（火把不是网络方块，不注册）。
   - `commonSetup`：`Upgrades.add(升级卡, 机器, UPGRADE_SLOTS)` × 3 声明升级卡支持（**参数顺序「卡在前、机器在后」**，颠倒会以机器作键、卡片放不进插槽）；仅登记加速器方块实体的代表物品（`AEBaseBlockEntity.registerBlockEntityItem`）；**绝不在此再调 `setBlockEntity`**（其四参签名 clientTicker/serverTicker 顺序极易传错，且 FMLCommonSetupEvent 晚于 RegisterEvent 会覆盖注册阶段注入的 ticker）。
-- `TorcherinoaemodClient.java`（`@EventBusSubscriber(value = Dist.CLIENT)`）：注册两个菜单 Screen（背景复用 AE2 `guis/background.png`，样式经自定义加载器 `ModScreens.loadStyleDoc("/screens/ae_*.json")` 读取）；注册 `AEAcceleratorRenderer`；`ModelEvent.RegisterAdditional` 单独注册 `AEAcceleratorRenderer.LIGHTS_MODEL`（发光带模型不在任何方块状态里）。
+- `TorcherinoaemodClient.java`（`@EventBusSubscriber(value = Dist.CLIENT)`）：注册两个菜单 Screen（背景复用 AE2 `guis/background.png`，样式经自定义加载器 `ModScreens.loadStyleDoc("/screens/ae_*.json")` 读取）；注册 `AEAcceleratorRenderer`；`ModelEvent.RegisterAdditional` 单独注册 `AEAcceleratorRenderer.LIGHTS_MODEL`（发光带模型不在任何方块状态里）。GUI 文字与暗色 UI 材质包的兼容机制见「4.5 暗色 UI 材质包兼容」。
 
 ### 4.2 方块与方块实体
 
 - `block/ModBlocks.java`：注册 `AE_ACCELERATOR`、`AE_TORCHERINO`、`AE_TORCHERINO_I`、`AE_TORCHERINO_II`。
 - `block/AEAcceleratorBlock`：继承 AE2 `AEBaseEntityBlock`；状态 `ONLINE`/`WORKING` + 水平朝向（`horizontalFacing()` 朝向策略，支持扳手旋转）；`updateBlockStateFromBlockEntity` 依方块实体 online/working 切 on/inactive/基础三态模型；`getOcclusionShape` 返回 `Shapes.empty()`（否则镂空框架模型的相邻面会被剔除）。
-- `block/AETorcherinoBlock`：`FACING` 六向 + 随朝向旋转的选择箱 + 无碰撞体积；**服务端 ticker 由本块的 `getTicker` 提供**（先判 `!level.isClientSide()` 且校验 `BlockEntityType` 再强转 `AETorcherinoBlockEntity`，客户端返回 null）。**基础/分级三个方块共用本类**，构造时以「方块实体类型 Supplier + 工厂」参数化（Supplier 避免在 ModBlocks 静态初始化阶段解析 ModBlockEntities 的 DeferredHolder），`newBlockEntity` 与 `getTicker` 据此分派到对应子类。
+- `block/AETorcherinoBlock`：`FACING` 六向 + `ENABLED`（总开关，放置默认 true）+ 随朝向旋转的选择箱 + 无碰撞体积；模型按 `ENABLED` 在 `block/ae_torcherino`（点亮）与 `block/ae_torcherino_off`（熄灭）间切换，配套三个 blockstates JSON 均为 `enabled×facing` 12 变体（键按字母序 `enabled=...,facing=...`）。**服务端 ticker 由本块的 `getTicker` 提供**（先判 `!level.isClientSide()` 且校验 `BlockEntityType` 再强转 `AETorcherinoBlockEntity`，客户端返回 null）。**基础/分级三个方块共用本类**，构造时以「方块实体类型 Supplier + 工厂」参数化（Supplier 避免在 ModBlocks 静态初始化阶段解析 ModBlockEntities 的 DeferredHolder），`newBlockEntity` 与 `getTicker` 据此分派到对应子类；静态 `applyEnabledState` 供方块实体把总开关写入状态，旧档状态缺 `enabled` 属性时以默认状态为底复制旧属性重建（不抛 setValue 异常）。
 - `blockentity/ModBlockEntities.java`（三个条目，ticker 注入方式**不同，勿互换**）：
   - `AE_ACCELERATOR`：注册时**手动注入 ticker**——`setBlockEntity(class, type, (e)->((ClientTickingBlockEntity)e).clientTick(), (e)->((ServerTickingBlockEntity)e).serverTick())`。不注入则原版区块 tick 循环不调 `commonTick()`，加速与 working 永不更新。
   - `AE_TORCHERINO` / `AE_TORCHERINO_TIER_I` / `AE_TORCHERINO_TIER_II`：只建类型、不注入（由方块 `getTicker` 提供），三者各自为独立类型。
@@ -60,7 +60,7 @@
   - 智能加速：`rebuildTargets()` 单次遍历网格产出「已登记设备」与「智能联动目标」（记入 `craftingLinkedIds`，范围由配置 `crafting.smartAccelerateScope` 控制：`ALL_ACCELERATABLE` 默认联动网内全部可加速设备—零配置兼容任意第三方 AE 工作机器；`CRAFTING_MACHINES` 仅联动 ICraftingProvider 服务宿主与 `CraftingSupport.isCraftingMachineType` 命中者）；`multiplierFor` 对已登记返回登记值，否则若在 `craftingLinkedIds` 且 `crafting.smartAccelerateEnabled` 开启则返回「当前智能倍率」（以游戏时间为键每 tick 缓存：扫描被选中 `isAccelerated` 且 `isBusy()` 的 CPU 的登记倍率最大值）；否则 1。
   - 状态流：online/working 经 `writeToStream/readFromStream` 同步客户端并驱动模型切换（`markForUpdate` 切方块状态、`markForClientUpdate` 同步 GUI）。NBT：`saveAdditional/loadTag` 持久化配置卡库存（binding）与 `TargetRegistry`（含来源标记）；加载后 `markTargetsDirty()`。
 - `blockentity/AETorcherinoBlockEntity.java`（普通 BlockEntity，**不实现 `IAccelerationSource`、不经过 `AccelerationEngine`**；服务端 tick 由方块 `getTicker` 提供，客户端不执行）：
-  - 独立范围扫描（原始 Torcherino 式）：X/Z/Y 范围默认 3/3/2、`speed` 默认取 `ConfigDefaults.TORCHERINO_MAX_SPEED`；setter 一律 `clampRange(v, RuntimeConfig 上限)`，变化后置 `scanCooldown=0` 强制下一 tick 重扫 + 存档 + `sendBlockUpdated`。NBT 键 `x_range/z_range/y_range/speed`，加载后 clamp 并保底 speed≥1。`isActive() = speed > 1 && !isRangeEmpty()`。
+  - 独立范围扫描（原始 Torcherino 式）：X/Z/Y 范围默认 3/3/2、`speed` 默认取 `ConfigDefaults.TORCHERINO_MAX_SPEED`；setter 一律 `clampRange(v, RuntimeConfig 上限)`，变化后置 `scanCooldown=0` 强制下一 tick 重扫 + 存档 + `sendBlockUpdated`。NBT 键 `x_range/z_range/y_range/speed/enabled`，加载后 clamp 并保底 speed≥1、旧档无开关标签默认开启。`isActive() = enabled && speed > 1 && !isRangeEmpty()`。**模型开关同步**：`setEnabled` 变化即时经 `AETorcherinoBlock.applyEnabledState` 写入方块状态（`level.setBlock(..., Block.UPDATE_CLIENTS)`）驱动 off/点亮模型切换；每次加载首帧 `syncEnabledBlockStateOnce` 兜底一次，修复旧档状态缺 `enabled` 属性导致的变体缺失（正常状态零开销空操作）。
   - 目标缓存：每 `SCAN_INTERVAL`（20）tick 重扫 `betweenClosed` 立方体（排除自身），把候选方块（AE 网格宿主 `IActionHost`/`IGridConnectedBlockEntity`、带方块实体 ticker、或随机 tick 方块）缓存为 `Target` 不可变快照；执行前校验方块实体类型未变，防止误加速被替换方块。
   - 三条加速路径对同一目标各自并行生效：AE 网格 tick（`IGridTickable` 重复 `tickingRequest(node,1)`，返回 `SLEEP` 时 `ITickManager.sleepDevice` 早退）、方块实体 ticker（`EntityBlock.getTicker` 重复调用）、随机 tick（`BlockState.randomTick`）。
   - **性能预算**：每 tick 先 `budget().resetTick()`——`budget()` 上限 = 配置 `budget.tickCallsPerSource` 经 `AdaptiveThrottle.INSTANCE.adjust` 的生效值（默认 -1 不限，实例仅在生效预算变化时重建）；三条路径每次调用前 `budget.request(1)` 按次申请，额度耗尽即停止剩余调用。火把因此与加速器共享同一套 TPS 自适应节流（拖垮 TPS 时逐档削峰）。
@@ -133,13 +133,17 @@
   - `render/pass/ConfigCardHighlightPass`：手持配置卡（主手优先副手）时，绑定的加速器画**蓝色** `0xFF4D99FF` 角括号、绑定的设备逐台画**绿色** `0xFF3ADB3A` 角括号；方块实体按整格框；**线缆部件**（`DeviceKind.PART`）经 `partBoxInWorld` 按**实际碰撞箱**单独画框——`IPartHost.getPart(side)` 取绑定朝向的部件，复用 `BusCollisionHelper`（以附着面为局部 z 轴）把其 1/16 局部盒换算成线缆格内世界盒、取并集再平移到坐标（与 AE2 选择框同口径），取不到部件/无几何退化为整格；合成 CPU 类绑定目标按卡上 `cpuBounds` 记录的**整组外包围盒**画线框（`drawBracket(min,max)`，无几何记录/包围盒区块未加载退化为单格，标记合并：一组只出一个框）；`INFLATE=0.03` 向外膨胀；同 AABB 深浅双通道（brackets alpha 0.9 正常遮挡 + noDepth `DEFAULT_NO_DEPTH_ALPHA=0.10` 穿透隐约可见，`depthTestEnabled` 静态开关可关穿透作调试）；门控：配置 `client.renderBracketHighlight`（关闭连 render 阶段都跳过）+ `mc.screen == null`（开 GUI 时停止世界内高亮防穿透干扰）+ 只画当前维度目标 + `mc.level.hasChunkAt`。
   - `render/util/CornerBracketRenderer`：把 AABB 轮廓渲染成 12 条带厚度的「块状」粗线段（顶环 + 底环 + 4 棱），每段由两端方帽 + 4 侧面共 6 个四边形组成（POSITION_COLOR）；厚度随距离自适应（基准 0.04 格，16 格内不变、超出线性加粗，带最小系数下限）。纯几何顶点计算下沉为公开静态 `computeSegmentQuads(...)`（退化返回 null），渲染路径只消费顶点数组，有单测覆盖（见 §10）。
   - `client/render/` 另有 `AEAcceleratorRenderer`（方块实体渲染器：接电工作叠加全亮度发光带 `LIGHTS_MODEL` + 流光粒子，粒子节奏在渲染器内维护，不污染方块实体）。
-- 其它：`client/ModScreens.java`（仿 AE2 StyleManager 的自定义样式加载器 `loadStyleDoc`，从本模组命名空间读样式 JSON）、`client/AEGuiMetrics.java`（界面度量常量集中地，有单测固化布局不变量，见 §10）。
+- 其它：`client/ModScreens.java`（自定义样式加载器 `loadStyleDoc`：仿 AE2 StyleManager 实现 includes 递归合并与段落按键合并，支持跨命名空间 include，例如样式 JSON include `ae2:screens/common/palette.json` 使调色板与 AE2 主题包联动；注意本类在 `client` 包，非横切配置层）、`client/GuiTheme.java`（GUI 文字自动对比度工具：按实际背景贴图采样明暗并做对比色调整，见下）、`client/AEGuiMetrics.java`（界面度量常量集中地，有单测固化布局不变量，见 §10）。
+- **GUI 文字在暗色 UI 材质包下的兼容（双层机制，勿单删任一）**：
+  - 数据联动：两个样式 JSON 以 `"includes": ["ae2:screens/common/palette.json"]` 继承 AE2 调色板（经 `ModScreens` 跨命名空间 includes 合并实现），AE2 主题包改写 palette 时界面文字基准色随之变化。
+  - 运行时兜底：`GuiTheme` 直接采样<b>实际生效</b>的背景贴图（`NativeImage` 读资源文件、按区域求平均亮度、进程级缓存，`invalidateCache()` 供资源热重载清理；读取失败按亮背景安全降级）；`ensureContrast(base, darkBg)` 对调色板基准色向白提亮或向黑压暗（纯计算、无色值硬编码；默认亮底 + 深色调色板下返回原色，观感零变化）。
+  - 已接入点：两个 Screen 的标题与物品栏标题（样式 text 条目 `dialog_title`/`player_inventory_title` 在构造器 `setTextHidden` 后由 `drawFG` 自绘，坐标仍从样式 JSON resolve，见 `drawStyledText`）、`DeviceListWidget` 行文字（分别采样「普通行条 / 悬浮·加速高亮条」两种底色）、`DeviceConfigPopup`（面板底色）、`SettingSliderWidget`（火把主背景 `ae2:guis/background.png`）。**新增自定义自绘界面文字时务必同样走「取调色板基准色 → GuiTheme.ensureContrast → 绘制」流程**。
 
 ### 4.6 资源与数据（手写，datagen 未启用）
 
 - `lang/en_us.json` + `lang/zh_cn.json`：全部文案。
 - `blockstates/` + `models/block/`：`ae_accelerator.json` 按 online×working 组合切基础 / `on` / `inactive` 三种模型；`ae_accelerator_lights.json` 发光带模型单独存在单独注册；`ae_torcherino.json` 按 FACING 六向；`models/item/` 含配置卡 `accelerator_config_card.json`（overrides 引用绑定态贴图）。
-- `screens/ae_accelerator.json` + `ae_torcherino.json`：自定义界面样式（palette、slots 按 id 定位槽位等）；背景复用 AE2 `guis/background.png` 生成纯背景。
+- `screens/ae_accelerator.json` + `ae_torcherino.json`：自定义界面样式（**不含 palette 段**——经顶层 `includes: ["ae2:screens/common/palette.json"]` 继承 AE2 调色板，改 palette 前务必确认 include 引用仍指向 AE2 的对应资源；slots 按 id 定位槽位等）；背景复用 AE2 `guis/background.png` 生成纯背景。
 - `textures/`：block/gui/item 三类贴图。
 - `data/torcherino_ae_mod/`：三个方块的 loot_table（掉落自身）+ 8 份合成配方（三个方块 + 配置卡 + 三升级卡；两个分级火把为 9@基础→1@I、9@I→1@II）。
 - `torcherino_ae_mod.mixins.json`：当前无任何 mixin。

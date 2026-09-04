@@ -1,29 +1,54 @@
 {
   "variants": {
-    "facing=up": {
-      "model": "torcherino_ae_mod:block/ae_torcherino"
-    },
-    "facing=down": {
-      "model": "torcherino_ae_mod:block/ae_torcherino",
+    "enabled=false,facing=down": {
+      "model": "torcherino_ae_mod:block/ae_torcherino_off",
       "x": 180
     },
-    "facing=north": {
-      "model": "torcherino_ae_mod:block/ae_torcherino",
+    "enabled=false,facing=east": {
+      "model": "torcherino_ae_mod:block/ae_torcherino_off",
+      "x": 90,
+      "y": 90
+    },
+    "enabled=false,facing=north": {
+      "model": "torcherino_ae_mod:block/ae_torcherino_off",
       "x": 90
     },
-    "facing=south": {
-      "model": "torcherino_ae_mod:block/ae_torcherino",
+    "enabled=false,facing=south": {
+      "model": "torcherino_ae_mod:block/ae_torcherino_off",
       "x": 270
     },
-    "facing=west": {
-      "model": "torcherino_ae_mod:block/ae_torcherino",
+    "enabled=false,facing=up": {
+      "model": "torcherino_ae_mod:block/ae_torcherino_off"
+    },
+    "enabled=false,facing=west": {
+      "model": "torcherino_ae_mod:block/ae_torcherino_off",
       "x": 90,
       "y": 270
     },
-    "facing=east": {
+    "enabled=true,facing=down": {
+      "model": "torcherino_ae_mod:block/ae_torcherino",
+      "x": 180
+    },
+    "enabled=true,facing=east": {
       "model": "torcherino_ae_mod:block/ae_torcherino",
       "x": 90,
       "y": 90
+    },
+    "enabled=true,facing=north": {
+      "model": "torcherino_ae_mod:block/ae_torcherino",
+      "x": 90
+    },
+    "enabled=true,facing=south": {
+      "model": "torcherino_ae_mod:block/ae_torcherino",
+      "x": 270
+    },
+    "enabled=true,facing=up": {
+      "model": "torcherino_ae_mod:block/ae_torcherino"
+    },
+    "enabled=true,facing=west": {
+      "model": "torcherino_ae_mod:block/ae_torcherino",
+      "x": 90,
+      "y": 270
     }
   }
 }

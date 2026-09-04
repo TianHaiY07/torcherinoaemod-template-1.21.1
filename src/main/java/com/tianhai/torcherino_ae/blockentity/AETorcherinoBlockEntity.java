@@ -14,6 +14,7 @@ import appeng.api.networking.ticking.TickRateModulation;
 import appeng.me.helpers.IGridConnectedBlockEntity;
 import com.tianhai.torcherino_ae.Torcherinoaemod;
 import com.tianhai.torcherino_ae.api.BudgetMeter;
+import com.tianhai.torcherino_ae.block.AETorcherinoBlock;
 import com.tianhai.torcherino_ae.config.ConfigDefaults;
 import com.tianhai.torcherino_ae.config.RuntimeConfig;
 import com.tianhai.torcherino_ae.core.AdaptiveThrottle;
@@ -61,6 +62,7 @@ public class AETorcherinoBlockEntity extends BlockEntity {
     private static final String TAG_Z_RANGE = "z_range";
     private static final String TAG_Y_RANGE = "y_range";
     private static final String TAG_SPEED = "speed";
+    private static final String TAG_ENABLED = "enabled";
 
     /** 影响范围内目标的重扫间隔（tick）。重新扫描以捕获新放置/移除的方块，降低每 tick 的全量遍历开销。 */
     private static final int SCAN_INTERVAL = 20;
@@ -74,8 +76,14 @@ public class AETorcherinoBlockEntity extends BlockEntity {
     // torcherino.maxSpeed（默认 4），分级火把取各自固定的 64 / 324）。
     private int speed;
 
+    // 总开关：false 时火把暂停一切加速（倍率与范围设置保留，可随时恢复）。放置默认开启。
+    private boolean enabled = true;
+
     // 是否正在加速（本 tick 确实对某些目标发起了加速调用）。
     private boolean working;
+
+    // 是否已在本方块实体加载后把「总开关」写入过方块状态（一次性，见 tick 开头）。
+    private boolean enabledStateSynced;
 
     // 影响范围内一个被缓存的加速目标：缓存方块实体类型与 ticker、是否随机 tick、是否 AE 设备，
     // 避免每 tick 重复查表取状态。方块位置必须是不可变快照（betweenClosed 返回可变 BlockPos）。
@@ -133,6 +141,8 @@ public class AETorcherinoBlockEntity extends BlockEntity {
         if (level.isClientSide()) {
             return;
         }
+        // 首次 tick 把总开关同步进方块状态（见 syncEnabledBlockStateOnce 注释）。
+        syncEnabledBlockStateOnce();
         // 源未激活（倍数 <= 1 或范围为空）时不加速。
         if (!isActive()) {
             setWorking(false);
@@ -427,10 +437,11 @@ public class AETorcherinoBlockEntity extends BlockEntity {
     }
 
     /**
-     * 火把是否可工作：倍数大于 1 且三维范围非全零（区域内才有可加速的方块）。
+     * 火把是否可工作：总开关开启、倍数大于 1 且三维范围非全零（区域内才有可加速的方块）。
+     * 关闭开关后为 {@code false}，tick 直接短路，火把不再扫描也不再加速任何方块。
      */
     public boolean isActive() {
-        return speed > 1 && !isRangeEmpty();
+        return enabled && speed > 1 && !isRangeEmpty();
     }
 
     /**
@@ -457,6 +468,60 @@ public class AETorcherinoBlockEntity extends BlockEntity {
      */
     public int getSpeed() {
         return speed;
+    }
+
+    /**
+     * 总开关当前状态：{@code true} 允许火把加速，{@code false} 暂停全部加速
+     * （倍率与范围设置保留，待重新开启后按原设置恢复）。
+     */
+    public boolean isEnabled() {
+        return enabled;
+    }
+
+    /**
+     * 设置总开关。关闭后火把经 {@link #isActive()} 短路立即停止加速（tick 不再扫描与调用
+     * 目标，工作状态清零），并把方块状态切到熄灭（off）模型；开启后从下一次 tick 起按
+     * 原倍率与范围恢复加速，模型切回点亮模型。
+     */
+    public void setEnabled(boolean enabled) {
+        if (this.enabled != enabled) {
+            this.enabled = enabled;
+            syncEnabledBlockState();
+            onConfigChanged();
+        }
+    }
+
+    /**
+     * 首次 tick 调用一次（每次方块实体加载后）：把方块状态里的「总开关」位与存档值对齐，
+     * 驱动客户端显示对应模型。正常情况下开关经 {@link #setEnabled} 已即时写入方块状态、
+     * 存档值与状态一致，此处为空操作；升级前的旧档方块状态不含 {@code enabled} 属性
+     * （属性本次新增）时，经此修复可避免旧火把在升级后因缺失变体而显示错误。
+     */
+    private void syncEnabledBlockStateOnce() {
+        if (enabledStateSynced) {
+            return;
+        }
+        enabledStateSynced = true;
+        syncEnabledBlockState();
+    }
+
+    /**
+     * 把当前总开关值写入方块状态（仅服务端）。与状态现值相同时直接短路，
+     * 不会产生多余的网络包或相邻方块更新。
+     */
+    private void syncEnabledBlockState() {
+        if (level == null || level.isClientSide()) {
+            return;
+        }
+        BlockState state = level.getBlockState(worldPosition);
+        if (state.getBlock() instanceof AETorcherinoBlock) {
+            boolean current = state.hasProperty(AETorcherinoBlock.ENABLED)
+                    && state.getValue(AETorcherinoBlock.ENABLED);
+            if (current != enabled) {
+                level.setBlock(worldPosition, AETorcherinoBlock.applyEnabledState(state, enabled),
+                        Block.UPDATE_CLIENTS);
+            }
+        }
     }
 
     /**
@@ -531,6 +596,7 @@ public class AETorcherinoBlockEntity extends BlockEntity {
         tag.putInt(TAG_Z_RANGE, zRange);
         tag.putInt(TAG_Y_RANGE, yRange);
         tag.putInt(TAG_SPEED, speed);
+        tag.putBoolean(TAG_ENABLED, enabled);
     }
 
     @Override
@@ -543,6 +609,8 @@ public class AETorcherinoBlockEntity extends BlockEntity {
         if (this.speed <= 0) {
             this.speed = 1;
         }
+        // 旧档没有开关标签时默认开启，避免升级后已放置的火把突然全部停止加速。
+        this.enabled = !tag.contains(TAG_ENABLED) || tag.getBoolean(TAG_ENABLED);
         // 加载后范围/配置可能变化，迫使下一个 tick 立即重扫目标缓存。
         scanCooldown = 0;
     }
