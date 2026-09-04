@@ -70,8 +70,10 @@
 ### 3. 智能加速：合成 CPU 联动
 
 在加速器 GUI 的「合成 CPU」区域选中一个 CPU 后开启智能加速：**在该 CPU 执行合成期间**，
-加速器会自动加速参与合成的 AE2 机器（如分子装配室、压印机、充能器等），合成结束即停止，
-无需手工逐个勾选。服务端默认启用，可通过 `crafting.smartAccelerateEnabled` 关闭。
+加速器会自动加速参与合成的设备（分子装配室、压印机、充能器等），合成结束即停止，无需手工逐个勾选。
+默认作用域 `ALL_ACCELERATABLE` 会把网络内**全部可加速设备**（含第三方 AE 工作机器）都纳入联动，
+零配置兼容任意 AE 附属；如需精确到「仅合成执行机器」，可把 `crafting.smartAccelerateScope`
+改为 `CRAFTING_MACHINES`。服务端默认启用，可通过 `crafting.smartAccelerateEnabled` 关闭。
 
 ### 4. 加速器配置卡：一次绑定、随处生效
 
@@ -158,7 +160,7 @@
 | `budget` | 每台源每 tick 的加速调用预算 | `-1`（不限） |
 | `cache` / `menu` | 目标缓存重建周期 / GUI 设备列表刷新周期 | `20` / `20`（tick） |
 | `grid` | 不可加速黑名单 / 合成机器兜底类型（全限定类名） | 默认内置三类基础设施 / 压印机、充能器 |
-| `crafting` | 智能加速总开关 | `true` |
+| `crafting` | 智能加速总开关 / 联动作用域 | `true` / `ALL_ACCELERATABLE` |
 | `debug` | 诊断日志开关 / 采样间隔 | `false` / `20` |
 | `client` | 列表过滤缓存 / 配置卡高亮渲染开关 | `true` / `true` |
 
@@ -189,9 +191,10 @@ JAVA_HOME=/path/to/jdk21 ./gradlew build
 
 - **不加速网络基础设施**：存储总线、P2P 隧道、能量元件等没有 tick 工作可言的设备被有意排除
   （服务端 `grid.acceleratableBlacklist` 可调整），要加速请把目标对准真正在跑的机器。
-- **智能加速只覆盖「合成执行机器」**：以 AE2 的合成机器契约（`ICraftingMachine` /
-  `CRAFTING_MACHINE` 能力）判定，内置压印机、充能器兜底，可在 `grid.craftingMachineExtraTypes`
-  扩展。
+- **智能加速默认覆盖全部可加速设备**：`crafting.smartAccelerateScope` 默认 `ALL_ACCELERATABLE`，
+  网络内所有非黑名单设备在选中 CPU 合成期间都会被联动，因此第三方 AE 工作机器**无需任何配置**即可兼容。
+  若只想加速「真正执行合成的机器」（`ICraftingMachine` / `CRAFTING_MACHINE` 能力判定，内置压印机、
+  充能器兜底），将其改为 `CRAFTING_MACHINES`，并在 `grid.craftingMachineExtraTypes` 追加类型。
 - **倍率太高 CPU 吃紧？** 服务端 `budget.tickCallsPerSource` 可限制每台加速器每 tick 对网格节点的
   调用次数；若仍不够，请合理控制升级卡堆叠与同时加速的设备数。
 - **存档 / 版本**：加速目标登记、配置卡绑定均以含维度的设备身份持久化，跨维度不会误判；

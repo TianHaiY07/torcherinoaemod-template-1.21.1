@@ -12,13 +12,17 @@ import appeng.api.networking.IGridNode;
 import appeng.api.networking.ticking.IGridTickable;
 import appeng.api.networking.ticking.ITickManager;
 import appeng.api.networking.ticking.TickRateModulation;
+import net.minecraft.core.BlockPos;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.block.entity.BlockEntityTicker;
+import net.minecraft.world.level.block.state.BlockState;
 
 /**
  * 加速脉冲执行器：全项目唯一的「让 AE2 设备加速」实现。
  * <p>
- * AE 加速器与 AE 加速火把两类加速源只通过 {@link IAccelerationSource} 暴露
- * 目标与倍率，本类统一完成催促、多次调用、睡眠早退与预算扣减，保证它们
- * 行为一致、实现只有一份。
+ * AE 加速器经 {@link IAccelerationSource} 暴露目标与倍率，本类统一完成催促、多次调用、
+ * 睡眠早退与预算扣减，保证行为一致、实现只有一份。
  * <p>
  * 每台目标的执行顺序：
  * <ol>
@@ -51,7 +55,7 @@ public final class AccelerationEngine {
         BudgetMeter budget = source.budget();
         budget.resetTick();
 
-        // 单网格源返回具体网格做一致性校验；多网格源（火把）返回 null，跳过该校验。
+        // 取源所在网格做一致性校验：源未入网（返回 null）时跳过该校验。
         IGrid expectedGrid = source.grid();
         List<AccelerationTarget> targets = source.targets();
 
@@ -83,8 +87,8 @@ public final class AccelerationEngine {
                 continue;
             }
             IGridTickable tickable = target.tickable();
-            // 设备期望睡眠（空闲中）：催促唤醒没有意义，跳过。
-            if (tickable.getTickingRequest(node).isSleeping()) {
+            // 睡眠判断仅对 AE2 网格 tick 设备有意义；原版 tick 设备无法查询睡眠状态，跳过该判断。
+            if (tickable != null && tickable.getTickingRequest(node).isSleeping()) {
                 skippedSleeping++;
                 continue;
             }
@@ -98,22 +102,43 @@ public final class AccelerationEngine {
                 budgetExhausted = true;
                 break;
             }
-            IGrid nodeGrid = node.getGrid();
-            ITickManager tickManager = nodeGrid == null ? null : nodeGrid.getTickManager();
-            if (tickManager == null) {
-                continue;
-            }
-
-            // 先把设备提前到「下一个 tick」触发，再在同一 tick 内额外推进工作量。
-            tickManager.alertDevice(node);
-            for (int c = 0; c < granted; c++) {
-                tickCalls++;
+            if (tickable != null) {
+                // 先把设备提前到「下一个 tick」触发，再在同一 tick 内额外推进工作量。
                 // 设备在处理过程中转入睡眠（工作已完成、原料耗尽或状态变更）时提前结束：
                 // 设备已空闲后继续推进其内部工作没有意义，还可能让它越过自身状态机边界。
                 // 注意 tickingRequest 返回 TickRateModulation 枚举，与 getTickingRequest
                 // 返回的 TickingRequest（才有 isSleeping()）不是一回事，不可混用。
-                if (tickable.tickingRequest(node, 1) == TickRateModulation.SLEEP) {
-                    break;
+                IGrid nodeGrid = node.getGrid();
+                ITickManager tickManager = nodeGrid == null ? null : nodeGrid.getTickManager();
+                if (tickManager == null) {
+                    continue;
+                }
+                tickManager.alertDevice(node);
+                for (int c = 0; c < granted; c++) {
+                    tickCalls++;
+                    if (tickable.tickingRequest(node, 1) == TickRateModulation.SLEEP) {
+                        break;
+                    }
+                }
+            } else {
+                // 原版 tick 设备：无法经 AE2 网格 tick 管理器催促，按倍率反复执行其方块实体的原版 tick。
+                BlockEntityTicker<BlockEntity> vanilla = target.vanillaTicker();
+                if (vanilla == null) {
+                    continue;
+                }
+                Object owner = node.getOwner();
+                if (!(owner instanceof BlockEntity be)) {
+                    continue;
+                }
+                Level level = be.getLevel();
+                if (level == null) {
+                    continue;
+                }
+                BlockState blockState = be.getBlockState();
+                BlockPos blockPos = be.getBlockPos();
+                for (int c = 0; c < granted; c++) {
+                    tickCalls++;
+                    vanilla.tick(level, blockPos, blockState, be);
                 }
             }
             hit++;

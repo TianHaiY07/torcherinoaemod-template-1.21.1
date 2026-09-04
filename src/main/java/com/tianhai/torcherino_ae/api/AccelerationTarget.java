@@ -1,15 +1,34 @@
 package com.tianhai.torcherino_ae.api;
 
+import org.jetbrains.annotations.Nullable;
+
 import appeng.api.networking.IGrid;
 import appeng.api.networking.IGridNode;
 import appeng.api.networking.ticking.IGridTickable;
+import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.block.entity.BlockEntityTicker;
 
 /**
- * 已解析的加速目标：在缓存重建期把「身份 / 网格节点 / 网格 tick 服务」一次性
- * 解析到位，脉冲期直接使用。每 tick 的加速路径因此不需要再做任何查找、强转
- * 或服务查询，只对已解析好的节点发起调用。
+ * 已解析的加速目标：在缓存重建期把「身份 / 网格节点 / 加速载体」一次性解析到位，
+ * 脉冲期直接使用。每 tick 的加速路径因此不需要再做任何查找、强转或服务查询，
+ * 只对已解析好的节点发起调用。
+ * <p>
+ * 加速载体有两种，二选一（可能两者都非空，但引擎优先走 {@link #tickable()}）：
+ * <ul>
+ *   <li>{@code tickable}：AE2 网格 tick 服务（{@link IGridTickable}，{@code isGridTicking()==true}），
+ *       经 AE2 网格 tick 管理器催促；</li>
+ *   <li>{@code vanillaTicker}：宿主方块实体的<b>原版</b> tick 函数（{@link BlockEntityTicker}，
+ *       经 {@code EntityBlock.getTicker} 取自方块），用于「接了 AE 网络但加工走原版 tick」的机器，
+ *       由引擎直接按倍率反复执行其原版 tick。</li>
+ * </ul>
  */
-public record AccelerationTarget(DeviceId id, IGridNode node, IGridTickable tickable) {
+public record AccelerationTarget(DeviceId id, IGridNode node, @Nullable IGridTickable tickable,
+                                 @Nullable BlockEntityTicker<BlockEntity> vanillaTicker) {
+
+    /** 是否走 AE2 网格 tick 加速路径（有 {@link IGridTickable} 服务）。 */
+    public boolean isGridTicking() {
+        return tickable != null;
+    }
 
     /**
      * 节点是否已脱离网格（被移除、区块卸载、换网或已销毁）。
@@ -27,8 +46,7 @@ public record AccelerationTarget(DeviceId id, IGridNode node, IGridTickable tick
 
     /**
      * 节点是否属于指定网格；传入 {@code null} 时任意网格都算匹配
-     * （火把可同时覆盖多个 AE 网络，不做网格一致性校验）。
-     * 节点已销毁时按不属于任何网格处理。
+     * （源未入网时不做网格一致性校验）。节点已销毁时按不属于任何网格处理。
      */
     public boolean belongsTo(IGrid grid) {
         if (grid == null) {

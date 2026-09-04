@@ -33,6 +33,24 @@ public final class ConfigDefaults {
     /** 每台加速器每 tick 可执行的额外加速调用预算：-1 表示不限制（默认不限制）。 */
     public static final int BUDGET_TICK_CALLS_PER_SOURCE = -1;
 
+    // ============================== TPS 自适应节流 ==============================
+
+    /**
+     * TPS 自适应节流总开关：单 tick 计算耗时逼近 50ms 硬限时自动压紧每源预算，
+     * 负载健康时不干预。默认开启——它不会限制「机器够快」时的正常加速，
+     * 只在高倍率拖垮 TPS 时削峰，是极端倍率下（默认无上限）的性能保护伞。
+     */
+    public static final boolean ADAPTIVE_ENABLED = true;
+
+    /** 收紧起点的调用预算（第一档）；仍逼近 50ms 硬限时逐档减半加深（见 AdaptiveThrottle）。 */
+    public static final int ADAPTIVE_FLOOR_CALLS = 256;
+
+    /** 单 tick 计算耗时（毫秒）达到该阈值即进入收紧（留出到 50ms 硬限的余量）。 */
+    public static final double ADAPTIVE_TIGHTEN_MS = 45.0;
+
+    /** 单 tick 计算耗时（毫秒）回落到该值以下才退出收紧（滞回防抖，须小于收紧阈值）。 */
+    public static final double ADAPTIVE_RELAX_MS = 35.0;
+
     // ============================== 能耗模型 ==============================
 
     /** 基础能耗（AE/t）：加速器每 tick 固定抽取。 */
@@ -83,6 +101,13 @@ public final class ConfigDefaults {
 
     /** 智能加速总开关：关闭后选中 CPU 不再联动加速合成机器。 */
     public static final boolean SMART_ACCELERATE_ENABLED = true;
+
+    /**
+     * 智能加速作用域（见 {@link SmartAccelerateScope}）。
+     * 默认 {@link SmartAccelerateScope#ALL_ACCELERATABLE}：联动网格内全部可加速设备，
+     * 从而对任意第三方 AE 工作机器零配置生效。
+     */
+    public static final SmartAccelerateScope SMART_ACCELERATE_SCOPE = SmartAccelerateScope.ALL_ACCELERATABLE;
 
     /** 诊断日志总开关（对应 DebugLog）。 */
     public static final boolean DEBUG_ENABLED = false;

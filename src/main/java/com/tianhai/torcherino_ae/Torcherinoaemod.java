@@ -12,11 +12,14 @@ import com.tianhai.torcherino_ae.item.ModDataComponents;
 import com.tianhai.torcherino_ae.item.ModItems;
 import com.tianhai.torcherino_ae.menu.ModMenus;
 import com.tianhai.torcherino_ae.util.DebugLog;
+import com.tianhai.torcherino_ae.core.AdaptiveThrottle;
 import appeng.api.AECapabilities;
 import appeng.api.networking.IInWorldGridNodeHost;
 import appeng.api.upgrades.Upgrades;
 import appeng.blockentity.AEBaseBlockEntity;
 import net.neoforged.bus.api.IEventBus;
+import net.neoforged.neoforge.common.NeoForge;
+import net.neoforged.neoforge.event.tick.ServerTickEvent;
 import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.fml.event.config.ModConfigEvent;
@@ -63,6 +66,11 @@ public class Torcherinoaemod {
         modEventBus.addListener(Torcherinoaemod::onConfigLoading);
         modEventBus.addListener(Torcherinoaemod::onConfigReloading);
 
+        // TPS 自适应节流采样：以 ServerTickEvent.Pre/Post 配对计时，得到不含补帧 sleep 的
+        // 单 tick 纯计算耗时（EMA 平滑后与阈值比较，见 AdaptiveThrottle）。
+        NeoForge.EVENT_BUS.addListener(Torcherinoaemod::onServerTickStart);
+        NeoForge.EVENT_BUS.addListener(Torcherinoaemod::onServerTickEnd);
+
         // 注册 commonSetup 阶段处理器（mod 加载阶段执行）。
         modEventBus.addListener(this::commonSetup);
         // 注册能力（capability）注册事件处理器。
@@ -91,6 +99,16 @@ public class Torcherinoaemod {
         } else if (event.getConfig().getSpec() == ModConfig.CLIENT_SPEC) {
             RuntimeConfig.refreshClient(ModConfig.CLIENT);
         }
+    }
+
+    /** ServerTickEvent.Pre：记录本服务端 tick 起始时刻（仅服务端逻辑 tick 线程触发）。 */
+    private static void onServerTickStart(ServerTickEvent.Pre event) {
+        AdaptiveThrottle.INSTANCE.onTickStart();
+    }
+
+    /** ServerTickEvent.Post：本 tick 计算完成，把耗时喂给自适应节流。 */
+    private static void onServerTickEnd(ServerTickEvent.Post event) {
+        AdaptiveThrottle.INSTANCE.onTickEnd();
     }
 
     /**

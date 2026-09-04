@@ -63,6 +63,33 @@ public final class RuntimeConfig {
         return budgetTickCallsPerSource;
     }
 
+    // ============================== TPS 自适应节流 ==============================
+
+    private static volatile boolean adaptiveEnabled = ConfigDefaults.ADAPTIVE_ENABLED;
+    private static volatile int adaptiveFloorCalls = ConfigDefaults.ADAPTIVE_FLOOR_CALLS;
+    private static volatile double adaptiveTightenMs = ConfigDefaults.ADAPTIVE_TIGHTEN_MS;
+    private static volatile double adaptiveRelaxMs = ConfigDefaults.ADAPTIVE_RELAX_MS;
+
+    /** TPS 自适应节流总开关。 */
+    public static boolean adaptiveEnabled() {
+        return adaptiveEnabled;
+    }
+
+    /** 收紧时每源每 tick 的最低调用预算。 */
+    public static int adaptiveFloorCalls() {
+        return adaptiveFloorCalls;
+    }
+
+    /** 进入收紧的单 tick 计算耗时阈值（毫秒）。 */
+    public static double adaptiveTightenMs() {
+        return adaptiveTightenMs;
+    }
+
+    /** 退出收紧的回落阈值（毫秒）。 */
+    public static double adaptiveRelaxMs() {
+        return adaptiveRelaxMs;
+    }
+
     public static double powerPerTick() {
         return powerPerTick;
     }
@@ -108,11 +135,17 @@ public final class RuntimeConfig {
     // ============================== 智能加速 / 诊断 ==============================
 
     private static volatile boolean smartAccelerateEnabled = ConfigDefaults.SMART_ACCELERATE_ENABLED;
+    private static volatile SmartAccelerateScope smartAccelerateScope = ConfigDefaults.SMART_ACCELERATE_SCOPE;
     private static volatile boolean debugEnabled = ConfigDefaults.DEBUG_ENABLED;
     private static volatile int debugSampleIntervalTicks = ConfigDefaults.DEBUG_SAMPLE_INTERVAL_TICKS;
 
     public static boolean smartAccelerateEnabled() {
         return smartAccelerateEnabled;
+    }
+
+    /** 智能加速作用域（见 {@link SmartAccelerateScope}）。 */
+    public static SmartAccelerateScope smartAccelerateScope() {
+        return smartAccelerateScope;
     }
 
     /** 诊断日志总开关（DebugLog 的实际 enable 状态由主类在刷新时同步）。 */
@@ -162,6 +195,11 @@ public final class RuntimeConfig {
         accelBaseMultiplier = server.acceleratorBaseMultiplier.get();
         accelMaxMultiplierCap = server.acceleratorMaxMultiplierCap.get();
         budgetTickCallsPerSource = server.budgetTickCallsPerSource.get();
+        adaptiveEnabled = server.adaptiveEnabled.get();
+        adaptiveFloorCalls = Math.max(1, server.adaptiveFloorCalls.get());
+        adaptiveTightenMs = server.adaptiveTightenMs.get();
+        // 退出阈值钳制到不超过进入阈值，避免「收紧后永不恢复」或阈值倒挂导致逻辑异常。
+        adaptiveRelaxMs = Math.min(server.adaptiveRelaxMs.get(), adaptiveTightenMs);
         powerPerTick = server.powerPerTick.get();
         powerPerUpgradeCard = server.powerPerUpgradeCard.get();
         powerPerAcceleratedDevice = server.powerPerAcceleratedDevice.get();
@@ -169,6 +207,7 @@ public final class RuntimeConfig {
         cacheRebuildIntervalTicks = Math.max(1, server.cacheRebuildIntervalTicks.get());
         menuDeviceListRefreshTicks = Math.max(5, server.menuDeviceListRefreshTicks.get());
         smartAccelerateEnabled = server.craftingSmartAccelerateEnabled.get();
+        smartAccelerateScope = server.craftingSmartAccelerateScope.get();
         debugEnabled = server.debugEnabled.get();
         debugSampleIntervalTicks = Math.max(1, server.debugSampleIntervalTicks.get());
         torcherinoMaxSpeed = Math.max(1, server.torcherinoMaxSpeed.get());

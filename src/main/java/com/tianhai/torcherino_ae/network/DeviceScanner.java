@@ -13,13 +13,17 @@ import appeng.parts.AEBasePart;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.EntityBlock;
 import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.block.entity.BlockEntityTicker;
+import net.minecraft.world.level.block.state.BlockState;
 
 /**
  * 网格设备扫描器：集中管理「哪些网格宿主是可加速设备」的判定与设备身份解析，
  * 供多处消费者复用，避免把筛选谓词散落到各处：
  * <ul>
- *   <li>加速源方块实体的目标缓存重建（{@code rebuildTargets}）；</li>
+ *   <li>AE 加速器的目标缓存重建（{@code rebuildTargets}）；</li>
  *   <li>配置卡注入的网格内设备判定（{@code ConfigCardBinding}）；</li>
  *   <li>加速器菜单的设备列表采集与手持配置卡右键的设备判定。</li>
  * </ul>
@@ -49,8 +53,12 @@ public final class DeviceScanner {
     /**
      * 判断网格节点是否为「可加速的设备」。
      * <p>
-     * 条件：注册了网格 tick 服务（{@link IGridTickable}）、宿主非空且非自身、属于可加速机器、
-     * 且能解析出坐标。
+     * 条件：宿主非空且非自身、属于可加速机器、能解析出坐标，且满足加速载体之一：
+     * <ul>
+     *   <li>注册了网格 tick 服务（{@link IGridTickable}）——经 AE2 网格 tick 管理器加速；</li>
+     *   <li>宿主方块实体具有<b>原版</b> tick 函数（{@link EntityBlock#getTicker} 非空）——
+     *       接了 AE 网络、但加工走原版 tick 的机器，由引擎按倍率反复执行其原版 tick。</li>
+     * </ul>
      * <p>
      * 注意：这里不判断 {@code isActive()}——菜单需要展示非活动设备（弱化色），
      * 仅加速脉冲要求设备处于激活状态，由调用方自行叠加该条件。
@@ -60,11 +68,45 @@ public final class DeviceScanner {
             return false;
         }
         Object owner = node.getOwner();
-        return node.getService(IGridTickable.class) != null
+        boolean gridTickable = node.getService(IGridTickable.class) != null;
+        boolean vanillaTicking = owner instanceof BlockEntity be && isVanillaTicking(be);
+        return (gridTickable || vanillaTicking)
                 && owner != null
                 && owner != self
                 && isAcceleratableMachine(owner)
                 && resolveDevicePos(owner) != null;
+    }
+
+    /**
+     * 宿主方块实体是否具有服务端<b>原版</b> tick 函数（{@link EntityBlock#getTicker} 非空）。
+     * <p>
+     * 用于识别「接了 AE 网络、但加工走原版 {@code BlockEntity} tick」的机器——它们不注册
+     * {@link IGridTickable}，却仍有真实的加工节奏可被加速。客户端无 tick，一律视为否。
+     */
+    public static boolean isVanillaTicking(@Nullable BlockEntity be) {
+        return vanillaTicker(be) != null;
+    }
+
+    /**
+     * 解析宿主方块实体的服务端原版 tick 函数；无（非 {@link EntityBlock} / 客户端 / 方块不 tick）时返回 {@code null}。
+     */
+    @Nullable
+    public static BlockEntityTicker<BlockEntity> vanillaTicker(@Nullable BlockEntity be) {
+        if (be == null) {
+            return null;
+        }
+        Level level = be.getLevel();
+        if (level == null || level.isClientSide()) {
+            return null;
+        }
+        BlockState state = be.getBlockState();
+        Block block = state.getBlock();
+        if (!(block instanceof EntityBlock entityBlock)) {
+            return null;
+        }
+        @SuppressWarnings({"unchecked", "rawtypes"})
+        BlockEntityTicker<BlockEntity> ticker = (BlockEntityTicker) entityBlock.getTicker(level, state, be.getType());
+        return ticker;
     }
 
     /**
@@ -90,10 +132,10 @@ public final class DeviceScanner {
      * 目标方块是 AE 设备（分子装配室、接口、线缆上的部件等）时，以
      * {@code AECapabilities.IN_WORLD_GRID_NODE_HOST} 能力拿到世界内网格节点宿主，
      * 遍历各相邻方向的网格节点，取第一个满足 {@link #isAcceleratableNode} 的节点。
-     * 供配置卡手持右键绑定设备、火把区域扫描时判定目标是否为可加速设备（含黑名单过滤、坐标解析）。
+     * 供配置卡手持右键绑定设备、加速器目标缓存重建时判定目标是否为可加速设备（含黑名单过滤、坐标解析）。
      *
      * @param be   目标方块实体（可能为 null）
-     * @param self 需要排除的自身方块实体（如加速器/火把本体；不排除时传 null）
+     * @param self 需要排除的自身方块实体（如加速器本体；不排除时传 null）
      * @return 可加速设备的网格节点，找不到时返回 {@code null}
      */
     @Nullable

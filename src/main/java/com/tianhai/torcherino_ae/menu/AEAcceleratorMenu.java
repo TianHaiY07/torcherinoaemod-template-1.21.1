@@ -42,9 +42,9 @@ import net.minecraft.world.level.block.entity.BlockEntity;
  * 同时复用 AE 的 {@link appeng.menu.slot.RestrictedInputSlot} 与 {@link appeng.menu.SlotSemantics#UPGRADE}
  * 语义来创建升级卡插槽。
  * <p>
- * 服务端会从加速器所在的 AE 网格采集「可加速设备」列表（仅包含注册了网格 tick 服务、
- * 且属于可加速机器的设备，即实现 {@link appeng.api.networking.ticking.IGridTickable} 的机器——存储总线、能量元件、
- * P2P 隧道等网络基础设施会被排除），并通过 {@code @GuiSync} 同步到客户端界面。
+ * 服务端会从加速器所在的 AE 网格采集「可加速设备」列表（仅包含注册了网格 tick 服务
+ * {@code IGridTickable}、或接了 AE 网络但加工走原版 tick 的设备，且属于可加速机器的设备——
+ * 存储总线、能量元件、P2P 隧道等网络基础设施会被排除），并通过 {@code @GuiSync} 同步到客户端界面。
  * 玩家点击设备条目时，客户端通过 {@code toggle_acceleration} 客户端动作把目标坐标发给服务端，
  * 由服务端切换该设备的加速状态。
  */

@@ -1,0 +1,21 @@
+{
+  "type": "minecraft:block",
+  "pools": [
+    {
+      "bonus_rolls": 0.0,
+      "conditions": [
+        {
+          "condition": "minecraft:survives_explosion"
+        }
+      ],
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "torcherino_ae_mod:ae_torcherino_ii"
+        }
+      ],
+      "rolls": 1.0
+    }
+  ],
+  "random_sequence": "torcherino_ae_mod:blocks/ae_torcherino_ii"
+}

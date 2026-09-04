@@ -1,0 +1,29 @@
+{
+  "variants": {
+    "facing=up": {
+      "model": "torcherino_ae_mod:block/ae_torcherino"
+    },
+    "facing=down": {
+      "model": "torcherino_ae_mod:block/ae_torcherino",
+      "x": 180
+    },
+    "facing=north": {
+      "model": "torcherino_ae_mod:block/ae_torcherino",
+      "x": 90
+    },
+    "facing=south": {
+      "model": "torcherino_ae_mod:block/ae_torcherino",
+      "x": 270
+    },
+    "facing=west": {
+      "model": "torcherino_ae_mod:block/ae_torcherino",
+      "x": 90,
+      "y": 270
+    },
+    "facing=east": {
+      "model": "torcherino_ae_mod:block/ae_torcherino",
+      "x": 90,
+      "y": 90
+    }
+  }
+}

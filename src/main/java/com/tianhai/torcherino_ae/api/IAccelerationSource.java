@@ -10,11 +10,11 @@ import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.level.Level;
 
 /**
- * 加速源契约：任何能够驱动 AE2 设备加速的对象（AE 加速器、AE 加速火把）都实现本接口。
+ * 加速源契约：AE 加速器经本接口接入统一的加速脉冲引擎。
  * <p>
  * 接口只声明源自身的特征——加速谁、每台多少倍、当前能否工作；实际执行由
  * {@link com.tianhai.torcherino_ae.core.AccelerationEngine} 统一驱动（催促、多次触发、
- * 睡眠早退、预算扣减、失效剔除），保证两类加速源行为一致、只维护一份实现。
+ * 睡眠早退、预算扣减、失效剔除），保证行为一致、实现只维护一份。
  */
 public interface IAccelerationSource {
 
@@ -24,10 +24,10 @@ public interface IAccelerationSource {
     /** 源自身坐标：用于设备列表排序、距离计算与展示。 */
     BlockPos origin();
 
-    /** 当前允许的倍率上限：加速器按升级卡计算，火把为固定上限。 */
+    /** 当前允许的倍率上限（AE 加速器按升级卡复合计算）。 */
     int maxMultiplier();
 
-    /** 源是否处于可工作状态：加速器为已联网且节点激活，火把为倍率大于 1 且范围非空。 */
+    /** 源是否处于可工作状态（AE 加速器为已联网且节点激活）。 */
     boolean isActive();
 
     /**
@@ -39,8 +39,7 @@ public interface IAccelerationSource {
     /**
      * 指定设备本 tick 应使用的加速倍数。返回小于等于 1 时引擎会跳过该设备。
      * <p>
-     * 加速器：登记表中查得到就用登记值，查不到则视为「智能加速联动目标」按当前智能倍率；
-     * 火把：所有目标统一返回界面设置的倍率。
+     * 加速器：登记表中查得到就用登记值，查不到则视为「智能加速联动目标」按当前智能倍率。
      */
     int multiplierFor(DeviceId id);
 
@@ -48,8 +47,8 @@ public interface IAccelerationSource {
     BudgetMeter budget();
 
     /**
-     * 本源所在的 AE 网格；单网格源（加速器）返回具体网格，引擎会校验目标节点
-     * 仍属于该网格；多网格源（火把，可同时覆盖多个网络）返回 {@code null}，跳过该校验。
+     * 本源所在的 AE 网格；引擎会校验目标节点仍属于该网格，
+     * 源未入网（返回 {@code null}）时跳过该校验。
      */
     @Nullable
     IGrid grid();

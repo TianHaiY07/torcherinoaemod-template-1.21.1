@@ -23,6 +23,14 @@ public class ModItems {
     public static final DeferredItem<BlockItem> AE_TORCHERINO = ITEMS.register("ae_torcherino",
             () -> new BlockItem(ModBlocks.AE_TORCHERINO.get(), new Item.Properties()));
 
+    // AE 加速火把 I 方块的物品形态（倍率上限 64x）。
+    public static final DeferredItem<BlockItem> AE_TORCHERINO_I = ITEMS.register("ae_torcherino_i",
+            () -> new BlockItem(ModBlocks.AE_TORCHERINO_I.get(), new Item.Properties()));
+
+    // AE 加速火把 II 方块的物品形态（倍率上限 324x）。
+    public static final DeferredItem<BlockItem> AE_TORCHERINO_II = ITEMS.register("ae_torcherino_ii",
+            () -> new BlockItem(ModBlocks.AE_TORCHERINO_II.get(), new Item.Properties()));
+
     // 加速器配置卡：绑定加速器及网络内的加速目标设备，放入加速器后自动启用加速。
     public static final DeferredItem<AcceleratorConfigCardItem> ACCELERATOR_CONFIG_CARD = ITEMS.register("accelerator_config_card",
             () -> new AcceleratorConfigCardItem(new Item.Properties()));

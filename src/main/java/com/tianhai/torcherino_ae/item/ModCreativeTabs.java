@@ -25,6 +25,8 @@ public class ModCreativeTabs {
                     .displayItems((parameters, output) -> {
                         output.accept(ModItems.AE_ACCELERATOR.get());
                         output.accept(ModItems.AE_TORCHERINO.get());
+                        output.accept(ModItems.AE_TORCHERINO_I.get());
+                        output.accept(ModItems.AE_TORCHERINO_II.get());
                         output.accept(ModItems.ACCELERATOR_CONFIG_CARD.get());
                         output.accept(ModItems.ACCELERATOR_UPGRADE_CARD_I.get());
                         output.accept(ModItems.ACCELERATOR_UPGRADE_CARD_II.get());

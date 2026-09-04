@@ -30,7 +30,8 @@ class TargetCacheTest {
         List<AccelerationTarget> rebuild() {
             count.incrementAndGet();
             // record 组件允许 null（本测试不构造真实网格节点）。
-            return List.of(new AccelerationTarget(null, null, null), new AccelerationTarget(null, null, null));
+            return List.of(new AccelerationTarget(null, null, null, null),
+                    new AccelerationTarget(null, null, null, null));
         }
     }
 

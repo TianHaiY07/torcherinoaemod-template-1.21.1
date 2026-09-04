@@ -45,4 +45,17 @@ public class ModBlockEntities {
             BLOCK_ENTITY_TYPES.register("ae_torcherino", () -> BlockEntityType.Builder
                     .of(AETorcherinoBlockEntity::create, ModBlocks.AE_TORCHERINO.get())
                     .build(null));
+
+    // AE 加速火把 I 的方块实体：倍率上限固定为 64x（每类分级火把各自独立的类型，
+    // 便于 getTicker 类型校验与菜单/存档识别）。
+    public static final DeferredHolder<BlockEntityType<?>, BlockEntityType<AETorcherinoTier1BlockEntity>> AE_TORCHERINO_TIER_I =
+            BLOCK_ENTITY_TYPES.register("ae_torcherino_i", () -> BlockEntityType.Builder
+                    .of(AETorcherinoTier1BlockEntity::create, ModBlocks.AE_TORCHERINO_I.get())
+                    .build(null));
+
+    // AE 加速火把 II 的方块实体：倍率上限固定为 324x。
+    public static final DeferredHolder<BlockEntityType<?>, BlockEntityType<AETorcherinoTier2BlockEntity>> AE_TORCHERINO_TIER_II =
+            BLOCK_ENTITY_TYPES.register("ae_torcherino_ii", () -> BlockEntityType.Builder
+                    .of(AETorcherinoTier2BlockEntity::create, ModBlocks.AE_TORCHERINO_II.get())
+                    .build(null));
 }

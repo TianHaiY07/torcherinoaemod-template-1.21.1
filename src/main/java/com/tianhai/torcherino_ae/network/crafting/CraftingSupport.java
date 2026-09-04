@@ -10,6 +10,8 @@ import com.tianhai.torcherino_ae.config.RuntimeConfig;
 import appeng.api.implementations.blockentities.ICraftingMachine;
 import appeng.api.networking.crafting.ICraftingCPU;
 import appeng.me.cluster.implementations.CraftingCPUCluster;
+import appeng.parts.AEBasePart;
+import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.level.Level;
@@ -82,29 +84,53 @@ public final class CraftingSupport {
         if (owner instanceof ICraftingMachine) {
             return true;
         }
-        if (owner instanceof BlockEntity be && providesCraftingMachineCapability(be)) {
+        LevelAndPos location = levelPosOf(owner);
+        if (location != null && providesCraftingMachineCapability(location.level(), location.pos())) {
             return true;
         }
         return RuntimeConfig.craftingMachineExtras().stream().anyMatch(type -> type.isInstance(owner));
     }
 
     /**
-     * 判断方块实体是否在任意邻接方向提供了 {@code AECapabilities.CRAFTING_MACHINE} 能力。
+     * 解析宿主用于查询合成能力的世界坐标：方块实体用自身坐标，部件（{@link AEBasePart}）
+     * 用其所在线缆宿主坐标。这样第三方以部件形式接入的合成机器也能命中能力检测。
+     */
+    @Nullable
+    private static LevelAndPos levelPosOf(Object owner) {
+        if (owner instanceof BlockEntity be) {
+            Level level = be.getLevel();
+            return level == null ? null : new LevelAndPos(level, be.getBlockPos());
+        }
+        if (owner instanceof AEBasePart part) {
+            BlockEntity host = part.getBlockEntity();
+            if (host == null) {
+                return null;
+            }
+            Level level = host.getLevel();
+            return level == null ? null : new LevelAndPos(level, host.getBlockPos());
+        }
+        return null;
+    }
+
+    /**
+     * 判断宿主所在块是否在任意方向提供了 {@code AECapabilities.CRAFTING_MACHINE} 能力。
      * <p>
      * AE2 的合成能力以 capability 形式暴露（分子装配室、第三方 AE 附属的合成机器均如此注册），
      * 因此以「宿主未直接实现 {@link ICraftingMachine} 接口、但通过能力接入合成体系」的方式判断，
      * 可以让智能加速兼容第三方。查询需要方向参数，故遍历六个方向，任一方向返回能力即命中。
      */
-    private static boolean providesCraftingMachineCapability(BlockEntity be) {
-        Level level = be.getLevel();
-        if (level == null) {
-            return false;
-        }
+    private static boolean providesCraftingMachineCapability(Level level, BlockPos pos) {
         for (Direction direction : Direction.values()) {
-            if (ICraftingMachine.of(level, be.getBlockPos(), direction) != null) {
+            if (ICraftingMachine.of(level, pos, direction) != null) {
                 return true;
             }
         }
         return false;
+    }
+
+    /**
+     * 宿主的世界坐标快照（Level + BlockPos），用于第三/部件的能力查询。
+     */
+    private record LevelAndPos(Level level, BlockPos pos) {
     }
 }

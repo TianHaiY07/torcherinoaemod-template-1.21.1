@@ -34,6 +34,11 @@ public final class ModConfig {
         public final ModConfigSpec.IntValue acceleratorMaxMultiplierCap;
         // ---- 预算 ----
         public final ModConfigSpec.IntValue budgetTickCallsPerSource;
+        // ---- TPS 自适应节流 ----
+        public final ModConfigSpec.BooleanValue adaptiveEnabled;
+        public final ModConfigSpec.IntValue adaptiveFloorCalls;
+        public final ModConfigSpec.DoubleValue adaptiveTightenMs;
+        public final ModConfigSpec.DoubleValue adaptiveRelaxMs;
         // ---- 能耗 ----
         public final ModConfigSpec.DoubleValue powerPerTick;
         public final ModConfigSpec.DoubleValue powerPerUpgradeCard;
@@ -48,6 +53,7 @@ public final class ModConfig {
         public final ModConfigSpec.ConfigValue<List<? extends String>> gridCraftingMachineExtraTypes;
         // ---- 智能加速 / 诊断 ----
         public final ModConfigSpec.BooleanValue craftingSmartAccelerateEnabled;
+        public final ModConfigSpec.EnumValue<SmartAccelerateScope> craftingSmartAccelerateScope;
         public final ModConfigSpec.BooleanValue debugEnabled;
         public final ModConfigSpec.IntValue debugSampleIntervalTicks;
         // ---- 加速火把 ----
@@ -76,7 +82,34 @@ public final class ModConfig {
                     .push("budget");
             this.budgetTickCallsPerSource = builder
                     .comment(" 每台加速器每 tick 可执行的额外加速调用预算；-1 表示不限制。")
+                    .comment(" 健康负载下这是硬顶；TPS 告急时经 adaptive 段会自动在它基础上进一步收紧。")
                     .defineInRange("tickCallsPerSource", ConfigDefaults.BUDGET_TICK_CALLS_PER_SOURCE, -1, 1_000_000);
+            builder.pop();
+
+            // TPS 自适应节流
+            builder.comment(" TPS 自适应节流：服务端单 tick 计算耗时（不含补帧 sleep）达到阈值时，")
+                    .comment(" 自动把每源每 tick 的调用预算压下来，防止极端高倍率加速拖垮 TPS。")
+                    .comment(" 收紧是【分级递降】的：预算先压到 floorCallsPerSource，若单 tick 仍逼近")
+                    .comment(" 50ms（20 TPS）硬限，则每个 tick 再逐档减半（…→64→32→…→1，最深几乎")
+                    .comment(" 停加速），直到 TPS 回落到健康区；回落后再逐档放开。")
+                    .comment(" 健康负载下完全不干预，预算与 budget 段配置一致（含 -1 不限）。")
+                    .push("adaptive");
+            this.adaptiveEnabled = builder
+                    .comment(" TPS 自适应节流总开关（默认开启）。开启时只在高倍率让单 tick 逼近 50ms")
+                    .comment(" （20 TPS）硬限时削峰，不会限制机器负载健康时的正常加速；")
+                    .comment(" 设为 false 完全关闭本机制：预算完全按 budget.tickCallsPerSource 执行")
+                    .comment(" （-1 即不限，回到旧行为），热重载即时生效。")
+                    .define("enabled", ConfigDefaults.ADAPTIVE_ENABLED);
+            this.adaptiveFloorCalls = builder
+                    .comment(" 收紧起点的调用预算（第一档）。若压到该值后单 tick 仍逼近 50ms 硬限，")
+                    .comment(" 会自动逐档减半加深（最终到 1，即几乎停止加速），无需手工调低本项。")
+                    .defineInRange("floorCallsPerSource", ConfigDefaults.ADAPTIVE_FLOOR_CALLS, 1, 1_000_000);
+            this.adaptiveTightenMs = builder
+                    .comment(" 进入收紧的单 tick 计算耗时阈值（毫秒）。50ms=20TPS 硬限，留出余量建议 40~45。")
+                    .defineInRange("tightenMs", ConfigDefaults.ADAPTIVE_TIGHTEN_MS, 5.0, 50.0);
+            this.adaptiveRelaxMs = builder
+                    .comment(" 退出收紧的回落阈值（毫秒），应小于 tightenMs（过大时按 tightenMs 钳制），避免负载在阈值附近抖动。")
+                    .defineInRange("relaxMs", ConfigDefaults.ADAPTIVE_RELAX_MS, 1.0, 50.0);
             builder.pop();
 
             // 能耗模型
@@ -128,6 +161,10 @@ public final class ModConfig {
             this.craftingSmartAccelerateEnabled = builder
                     .comment(" 智能加速总开关：关闭后选中合成 CPU 也不会联动加速合成机器。")
                     .define("smartAccelerateEnabled", ConfigDefaults.SMART_ACCELERATE_ENABLED);
+            this.craftingSmartAccelerateScope = builder
+                    .comment(" 智能加速作用域：CRAFTING_MACHINES 仅联动合成机器（依赖 AE2 接口/能力/类型表识别）；"
+                            + " ALL_ACCELERATABLE 联动网格内全部可加速设备（零配置兼容任意第三方 AE 工作机器）。")
+                    .defineEnum("smartAccelerateScope", ConfigDefaults.SMART_ACCELERATE_SCOPE);
             builder.pop();
             builder.comment(" 诊断日志（DebugLog 门面）。").push("debug");
             this.debugEnabled = builder

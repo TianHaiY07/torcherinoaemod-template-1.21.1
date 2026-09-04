@@ -31,9 +31,11 @@ import com.tianhai.torcherino_ae.api.DeviceId;
 import com.tianhai.torcherino_ae.api.IAccelerationSource;
 import com.tianhai.torcherino_ae.block.ModBlocks;
 import com.tianhai.torcherino_ae.config.RuntimeConfig;
+import com.tianhai.torcherino_ae.config.SmartAccelerateScope;
 import com.tianhai.torcherino_ae.network.DeviceScanner;
 import com.tianhai.torcherino_ae.network.crafting.CraftingSupport;
 import com.tianhai.torcherino_ae.core.AccelerationEngine;
+import com.tianhai.torcherino_ae.core.AdaptiveThrottle;
 import com.tianhai.torcherino_ae.core.MultiplierCalculator;
 import com.tianhai.torcherino_ae.core.PowerModel;
 import com.tianhai.torcherino_ae.core.TargetCache;
@@ -47,6 +49,8 @@ import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.block.entity.BlockEntityTicker;
 import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockState;
 
@@ -70,7 +74,8 @@ import net.minecraft.world.level.block.state.BlockState;
  * 未安装升级卡时最高加速 4x（基础倍率与各档系数均可由配置调整，默认分别为 4 / 2 / 4 / 8）；
  * 每插入一张升级卡（I=×2、II=×4、III=×8）会以复合累乘的方式放大基础倍数：
  * 4 × 2^I × 4^II × 8^III（公式见 {@link MultiplierCalculator}）。
- * 只有注册了网格 tick 服务（{@link IGridTickable}）且处于激活状态的 AE 设备才能被加速。
+ * 可被加速的设备分两类：注册了网格 tick 服务（{@link IGridTickable}）经 AE2 网格 tick 管理器加速，
+ * 或「接了 AE 网络、但加工走原版 {@code BlockEntity} tick」的机器，由引擎按倍率反复执行其原版 tick。
  */
 public class AEAcceleratorBlockEntity extends AENetworkedPoweredBlockEntity
         implements IUpgradeableObject, CommonTickingBlockEntity, IAccelerationSource {
@@ -102,7 +107,8 @@ public class AEAcceleratorBlockEntity extends AENetworkedPoweredBlockEntity
     // 重建间隔取配置 cache.rebuildIntervalTicks 的当前值（方块每次创建/重开区块读取，默认 20 tick）。
     private final TargetCache targetCache = new TargetCache(RuntimeConfig.cacheRebuildIntervalTicks());
 
-    // 智能联动目标标识集：rebuildTargets 时收集「未被登记、但属于合成相关机器」的设备，
+    // 智能联动目标标识集：rebuildTargets 时收集「未被登记、但被纳入智能联动」（见 shouldSmartLink，
+    // 作用域由配置 crafting.smartAccelerateScope 控制）的设备，
     // multiplierFor 据此把这类目标按当前智能加速倍率放行。仅在缓存重建期间修改。
     private final Set<DeviceId> craftingLinkedIds = new HashSet<>();
 
@@ -208,9 +214,11 @@ public class AEAcceleratorBlockEntity extends AENetworkedPoweredBlockEntity
 
     @Override
     public BudgetMeter budget() {
-        // 预算上限由配置 budget.tickCallsPerSource 提供（默认 -1 不限）。
-        // 计量器实例被缓存：仅当配置值变化时才重建，避免每个 tick 分配对象。
-        int limit = RuntimeConfig.budgetTickCallsPerSource();
+        // 预算上限 = 静态配置（budget.tickCallsPerSource，默认 -1 不限）经 TPS 自适应节流调整后
+        // 的生效值（AdaptiveThrottle）：健康负载时原样返回配置值，单 tick 逼近 50ms 硬限时
+        // 自动收紧到下限，回落自动恢复。计量器实例被缓存：仅当生效预算变化（配置改动或
+        // 收紧/恢复切换）时才重建，平时每个 tick 零分配。
+        int limit = AdaptiveThrottle.INSTANCE.adjust(RuntimeConfig.budgetTickCallsPerSource());
         if (limit != budgetLimitTicks) {
             budgetLimitTicks = limit;
             budgetMeter = new BudgetMeter(limit);
@@ -291,10 +299,15 @@ public class AEAcceleratorBlockEntity extends AENetworkedPoweredBlockEntity
         if (log) {
             DebugLog.info(
                     "[诊断][工作] {} | needed={} | available={} | isWorking={} | 实际加速设备={} | 调用次数={} |"
-                            + " 睡眠跳过={} | 未激活跳过={} | 脱离剔除={} | 预算耗尽={} | 最高倍数={} | 登记设备={}",
+                            + " 睡眠跳过={} | 未激活跳过={} | 脱离剔除={} | 预算耗尽={} | 最高倍数={} | 登记设备={}"
+                            + " | 自适应节流={} | tick耗时EMA={}ms",
                     getBlockPos(), needed, available, isWorking, result.hit(), result.tickCalls(),
                     result.skippedSleeping(), result.skippedInactive(), result.skippedDetached(),
-                    result.budgetExhausted(), getAccelMultiplier(), targetRegistry.size());
+                    result.budgetExhausted(), getAccelMultiplier(), targetRegistry.size(),
+                    AdaptiveThrottle.INSTANCE.isThrottled()
+                            ? "收紧(档" + AdaptiveThrottle.INSTANCE.throttleLevel() + ")"
+                            : "正常",
+                    (double) Math.round(AdaptiveThrottle.INSTANCE.emaTickMs() * 10) / 10);
         }
     }
 
@@ -388,12 +401,12 @@ public class AEAcceleratorBlockEntity extends AENetworkedPoweredBlockEntity
      * 只遍历网格一次，产出两类目标并写入同一列表（引擎按每台设备的倍率放行）：
      * <ul>
      *   <li>已登记的设备（玩家勾选 / 配置卡注入）→ 常规加速目标；</li>
-     *   <li>未被登记、但属于合成相关机器的设备（接口 / 样板供应器等 ICraftingProvider，
-     *       或分子装配室 / 压印机 / 充能器等合成执行机器）→ 智能联动目标，
+     *   <li>未被登记、但被纳入智能联动的设备（见 {@link #shouldSmartLink}，作用域由配置
+     *       {@code crafting.smartAccelerateScope} 控制：默认联动网内全部可加速设备以兼容任意
+     *       第三方 AE 工作机器；保守模式仅联动 ICraftingProvider 与合成执行机器）→
      *       标识记入 {@link #craftingLinkedIds}，仅当有正在合成的被选中 CPU 时才被放行。</li>
      * </ul>
      * 筛选谓词与菜单设备列表采集保持一致（见 {@link DeviceScanner#isAcceleratableNode}）。
-     * 激活状态每 tick 变化，不在此判断（避免设备暂时未激活而被漏出缓存），交给引擎按 tick 判定。
      */
     private List<AccelerationTarget> rebuildTargets() {
         IGrid grid = grid();
@@ -413,17 +426,42 @@ public class AEAcceleratorBlockEntity extends AENetworkedPoweredBlockEntity
                 continue;
             }
             IGridTickable tickable = node.getService(IGridTickable.class);
-            if (tickable == null) {
+            BlockEntityTicker<BlockEntity> vanilla = owner instanceof BlockEntity be
+                    ? DeviceScanner.vanillaTicker(be)
+                    : null;
+            // 加速载体：AE2 网格 tick 或原版 tick 至少其一；两者皆无则无真实加工节奏，跳过。
+            if (tickable == null && vanilla == null) {
                 continue;
             }
             if (targetRegistry.isAccelerated(id)) {
-                targets.add(new AccelerationTarget(id, node, tickable));
-            } else if (isCraftingRelated(node)) {
-                targets.add(new AccelerationTarget(id, node, tickable));
+                targets.add(new AccelerationTarget(id, node, tickable, vanilla));
+            } else if (shouldSmartLink(node)) {
+                targets.add(new AccelerationTarget(id, node, tickable, vanilla));
                 craftingLinkedIds.add(id);
             }
         }
         return targets;
+    }
+
+    /**
+     * 判断网格节点是否应被纳入「智能加速联动」。
+     * <p>
+     * 是否「此刻参与」（机器忙碌）由加速脉冲内的睡眠判断共同决定，这里只负责把
+     * 「候选联动目标」纳入集合。作用域由配置 {@code crafting.smartAccelerateScope} 控制：
+     * <ul>
+     *   <li>{@link SmartAccelerateScope#ALL_ACCELERATABLE}（默认）：凡经过
+     *       {@link DeviceScanner#isAcceleratableNode} 判定可加速（非黑名单基础设施）的设备
+     *       一律联动——对任意第三方 AE 工作机器零配置生效，无需它们实现 AE2 接口/能力。
+     *       进入 {@code rebuildTargets} 的节点必然已通过该判定，故此处直接放行。</li>
+     *   <li>{@link SmartAccelerateScope#CRAFTING_MACHINES}：仅联动「合成相关机器」，
+     *       依赖 {@link #isCraftingRelated(IGridNode)} 的 AE2 接口 / 能力 / 类型表识别。</li>
+     * </ul>
+     */
+    private static boolean shouldSmartLink(IGridNode node) {
+        if (RuntimeConfig.smartAccelerateScope() == SmartAccelerateScope.ALL_ACCELERATABLE) {
+            return true;
+        }
+        return isCraftingRelated(node);
     }
 
     /**
@@ -439,8 +477,7 @@ public class AEAcceleratorBlockEntity extends AENetworkedPoweredBlockEntity
      *       通过类型集合兜底。被邻接的 pattern provider 调用、真正执行合成。</li>
      * </ul>
      * 借助该判定，无需回溯 CPU 的内部任务映射（AE2 未公开「CPU → 具体机器」的查询），
-     * 即可命中「正在为合成提供服务」的机器。是否「此刻参与」（机器忙碌）由加速脉冲内的
-     * 睡眠判断共同决定。
+     * 即可命中「正在为合成提供服务」的机器。
      */
     private static boolean isCraftingRelated(IGridNode node) {
         if (node.getService(ICraftingProvider.class) != null) {

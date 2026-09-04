@@ -1,0 +1,16 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "pattern": [
+    "XXX",
+    "XXX",
+    "XXX"
+  ],
+  "key": {
+    "X": { "item": "torcherino_ae_mod:ae_torcherino_i" }
+  },
+  "result": {
+    "id": "torcherino_ae_mod:ae_torcherino_ii",
+    "count": 1
+  }
+}

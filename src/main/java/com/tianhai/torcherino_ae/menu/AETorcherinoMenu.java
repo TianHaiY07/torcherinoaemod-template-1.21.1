@@ -27,8 +27,11 @@ import net.minecraft.world.item.ItemStack;
 public class AETorcherinoMenu extends AEBaseMenu {
 
     // 菜单类型常量，由 AE2 的 MenuTypeBuilder 构建（仅创建未注册），再由 ModMenus 放入注册表。
+    // 菜单标题取宿主方块实体所属方块的显示名（基础/分级火把名不同），
+    // 覆盖界面样式 JSON 里固定的 dialog_title，让三种火把的界面标题各自正确。
     public static final MenuType<AETorcherinoMenu> TYPE = MenuTypeBuilder
             .create(AETorcherinoMenu::new, AETorcherinoBlockEntity.class)
+            .withMenuTitle(host -> host.getBlockState().getBlock().getName())
             .buildUnregistered(ResourceLocation.fromNamespaceAndPath(Torcherinoaemod.MOD_ID, "ae_torcherino"));
 
     // 客户端「设置范围/倍数」动作名。

@@ -9,8 +9,8 @@ import com.tianhai.torcherino_ae.config.ConfigDefaults;
 /**
  * 加速目标缓存：把「全网格 / 全区域扫描」的代价从每 tick 摊薄到「周期或变更时」。
  * <p>
- * 目标列表、失效标记与重建计时三类状态统一封装在本类，AE 加速器与 AE 加速火把
- * 各持有一个实例复用同一套逻辑。
+ * 目标列表、失效标记与重建计时三类状态统一封装在本类，加速源
+ * （{@link com.tianhai.torcherino_ae.api.IAccelerationSource}）各持有一个实例复用同一套逻辑。
  * <p>
  * 触发重建的三种时机：
  * <ul>
