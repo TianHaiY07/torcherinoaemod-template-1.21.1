@@ -5,6 +5,7 @@ import org.jetbrains.annotations.Nullable;
 import appeng.api.networking.IGrid;
 import appeng.api.networking.IGridNode;
 import appeng.api.networking.ticking.IGridTickable;
+import com.tianhai.torcherino_ae.util.AeGrid;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.BlockEntityTicker;
 
@@ -61,13 +62,9 @@ public record AccelerationTarget(DeviceId id, IGridNode node, @Nullable IGridTic
      * AE2 的 {@code GridNode.getGrid()} 在节点销毁后抛 {@link IllegalStateException}
      * 而非返回 {@code null}；这里统一转译为 {@code null}（=已脱离/已销毁），
      * 使调用方只需判空即可覆盖节点存活的全部情况。仅在缓存过期窗口内异常路径
-     * 会构造异常，正常路径与 null 判空开销相同。
+     * 会构造异常，正常路径与 null 判空开销相同（实现委托 {@code util.AeGrid}，全局唯一）。
      */
     private static IGrid gridOf(IGridNode node) {
-        try {
-            return node.getGrid();
-        } catch (IllegalStateException destroyed) {
-            return null;
-        }
+        return AeGrid.gridOf(node);
     }
 }

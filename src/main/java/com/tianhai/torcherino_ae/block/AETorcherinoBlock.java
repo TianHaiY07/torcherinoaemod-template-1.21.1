@@ -45,7 +45,7 @@ import net.minecraft.world.phys.shapes.VoxelShape;
  * 服务端每个 tick 扫描周围立方体区域，把其中的方块以配置的倍数加速，加速对象不限于 AE 设备：
  * AE 网格设备重复驱动其网格 tick（{@code IGridTickable}），带方块实体 ticker 的方块重复调用
  * 其 ticker（原版熔炉、第三方机器等），可随机 tick 的方块重复调用随机 tick——三条路径对同一目标
- * 并行生效，详见 {@link com.tianhai.torcherino_ae.blockentity.AETorcherinoBlockEntity}。
+ * 并行生效，详见 {@link AETorcherinoBlockEntity}。
  * <p>
  * 模型按「总开关」切换：总开关开启时使用 {@code ae_torcherino.json}（火焰亮起的模型），
  * 关闭（方块实体 {@code enabled=false}）时由方块实体驱动方块状态切换为

@@ -18,13 +18,13 @@ import com.tianhai.torcherino_ae.Torcherinoaemod;
 import com.tianhai.torcherino_ae.api.DeviceId;
 import com.tianhai.torcherino_ae.item.ConfigCardData;
 import com.tianhai.torcherino_ae.network.crafting.CraftingSupport;
+import com.tianhai.torcherino_ae.util.AeGrid;
+import com.tianhai.torcherino_ae.util.ConfigCardScanner;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.entity.BlockEntity;
@@ -194,17 +194,10 @@ public final class ConfigCardCleanup {
             return null;
         }
         for (Direction direction : Direction.values()) {
-            IGridNode node = host.getGridNode(direction);
-            if (node == null) {
-                continue;
-            }
-            try {
-                IGrid grid = node.getGrid();
-                if (grid != null) {
-                    return grid;
-                }
-            } catch (IllegalStateException destroyed) {
-                // 节点已从网格注销（getGrid 对无网格节点抛 ISE），继续尝试其它方向。
+            // AeGrid.gridOf 把「节点未入网/销毁时 getGrid() 抛 ISE」统一转译为 null，任一方向命中即返回。
+            IGrid grid = AeGrid.gridOf(host.getGridNode(direction));
+            if (grid != null) {
+                return grid;
             }
         }
         return null;
@@ -254,15 +247,8 @@ public final class ConfigCardCleanup {
             return;
         }
         // 1) 在线玩家背包中的配置卡：清除绑定到已移除坐标的普通设备。
-        for (ServerPlayer player : server.getPlayerList().getPlayers()) {
-            Inventory inventory = player.getInventory();
-            for (int i = 0; i < inventory.getContainerSize(); i++) {
-                ItemStack stack = inventory.getItem(i);
-                if (ConfigCardData.isConfigCard(stack)) {
-                    ConfigCardData.purgeRemovedBlockDevices(stack, removedByDimension);
-                }
-            }
-        }
+        ConfigCardScanner.forEachConfigCardInInventories(server.getPlayerList().getPlayers(),
+                stack -> ConfigCardData.purgeRemovedBlockDevices(stack, removedByDimension));
         // 2) 与被移除设备同网络的加速器：改写其卡槽卡片（触发库存变化 -> 同步撤销已注入的
         //    CONFIG_CARD 登记，并随方块实体落盘）。
         for (IGrid grid : affectedGrids) {
@@ -347,15 +333,11 @@ public final class ConfigCardCleanup {
     private static void applyCpuFate(CpuRemoval removal, @Nullable DeviceId replacement, @Nullable BlockPos newMax) {
         DeviceId oldCpu = removal.cpuId();
         MinecraftServer server = removal.level().getServer();
-        for (ServerPlayer player : server.getPlayerList().getPlayers()) {
-            Inventory inventory = player.getInventory();
-            for (int i = 0; i < inventory.getContainerSize(); i++) {
-                ItemStack stack = inventory.getItem(i);
-                if (ConfigCardData.isConfigCard(stack) && ConfigCardData.isDeviceBound(stack, oldCpu)) {
-                    applyCpuFateToStack(stack, oldCpu, replacement, newMax);
-                }
+        ConfigCardScanner.forEachConfigCardInInventories(server.getPlayerList().getPlayers(), stack -> {
+            if (ConfigCardData.isDeviceBound(stack, oldCpu)) {
+                applyCpuFateToStack(stack, oldCpu, replacement, newMax);
             }
-        }
+        });
         IGrid grid = removal.grid();
         if (grid == null) {
             return;

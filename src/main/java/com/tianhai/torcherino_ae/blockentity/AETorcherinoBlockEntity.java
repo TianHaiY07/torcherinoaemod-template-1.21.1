@@ -3,21 +3,15 @@ package com.tianhai.torcherino_ae.blockentity;
 import java.util.ArrayList;
 import java.util.List;
 
-import org.jetbrains.annotations.Nullable;
-
-import appeng.api.networking.IGrid;
-import appeng.api.networking.IGridNode;
 import appeng.api.networking.security.IActionHost;
 import appeng.api.networking.ticking.IGridTickable;
-import appeng.api.networking.ticking.ITickManager;
-import appeng.api.networking.ticking.TickRateModulation;
 import appeng.me.helpers.IGridConnectedBlockEntity;
-import com.tianhai.torcherino_ae.Torcherinoaemod;
 import com.tianhai.torcherino_ae.api.BudgetMeter;
 import com.tianhai.torcherino_ae.block.AETorcherinoBlock;
 import com.tianhai.torcherino_ae.config.ConfigDefaults;
 import com.tianhai.torcherino_ae.config.RuntimeConfig;
 import com.tianhai.torcherino_ae.core.AdaptiveThrottle;
+import com.tianhai.torcherino_ae.core.SourceBudget;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
@@ -26,7 +20,6 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.EntityBlock;
 import net.minecraft.world.level.block.entity.BlockEntity;
-import net.minecraft.world.level.block.entity.BlockEntityTicker;
 import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockState;
 
@@ -85,23 +78,15 @@ public class AETorcherinoBlockEntity extends BlockEntity {
     // 是否已在本方块实体加载后把「总开关」写入过方块状态（一次性，见 tick 开头）。
     private boolean enabledStateSynced;
 
-    // 影响范围内一个被缓存的加速目标：缓存方块实体类型与 ticker、是否随机 tick、是否 AE 设备，
-    // 避免每 tick 重复查表取状态。方块位置必须是不可变快照（betweenClosed 返回可变 BlockPos）。
-    private record Target(BlockPos pos, boolean isAeMachine,
-                          @Nullable BlockEntityType<?> beType,
-                          @Nullable BlockEntityTicker<BlockEntity> ticker, boolean randomlyTicking) {
-    }
-
-    // 缓存的影响范围内目标，避免每 tick 全量遍历整块区域。
-    private final List<Target> targets = new ArrayList<>();
+    // 缓存的影响范围内目标（由 TorchTargetScanner 扫描产生），避免每 tick 全量遍历整块区域。
+    private final List<TorchTargetScanner.Target> targets = new ArrayList<>();
     // 距下一次重扫的剩余 tick。
     private int scanCooldown;
 
     // 每 tick 加速调用预算：预算值 = 配置 budget.tickCallsPerSource（默认 -1 不限）经 TPS
     // 自适应节流调整后的生效值；TPS 逼近硬限时自动收紧并逐档递减（见 AdaptiveThrottle），
-    // 负载健康时 -1 原样放行，行为与 AE 加速器端完全一致。实例仅在生效预算变化时重建。
-    private BudgetMeter torchBudget = BudgetMeter.UNLIMITED_METER;
-    private int torchBudgetLimitTicks = BudgetMeter.UNLIMITED;
+    // 负载健康时 -1 原样放行，行为与 AE 加速器端完全一致。缓存与重建逻辑在 SourceBudget 内。
+    private final SourceBudget torchBudget = new SourceBudget();
 
     public AETorcherinoBlockEntity(BlockPos pos, BlockState state) {
         this(pos, state, ModBlockEntities.AE_TORCHERINO.get(), ConfigDefaults.TORCHERINO_MAX_SPEED);
@@ -157,8 +142,8 @@ public class AETorcherinoBlockEntity extends BlockEntity {
         BudgetMeter budget = budget();
         budget.resetTick();
         boolean didWork = false;
-        for (Target target : targets) {
-            didWork |= accelerate(level, target, budget);
+        for (TorchTargetScanner.Target target : targets) {
+            didWork |= TorchAccelerator.accelerate(level, target, speed, budget);
         }
         setWorking(didWork);
     }
@@ -169,254 +154,19 @@ public class AETorcherinoBlockEntity extends BlockEntity {
      * 仅当生效预算变化（配置改动或收紧档位切换）时重建，平时每个 tick 零分配。
      */
     private BudgetMeter budget() {
-        int limit = AdaptiveThrottle.INSTANCE.adjust(RuntimeConfig.budgetTickCallsPerSource());
-        if (limit != torchBudgetLimitTicks) {
-            torchBudgetLimitTicks = limit;
-            torchBudget = new BudgetMeter(limit);
-        }
-        return torchBudget;
+        return torchBudget.get();
     }
 
     // ========================= 目标缓存（区域扫描） =========================
 
     /**
-     * 重新扫描影响范围立方体，把范围内「可能被加速」的方块缓存进列表。
-     * <p>
-     * 判定为候选的条件（满足其一）：实现 AE 网格设备接口（{@link IActionHost} 或
-     * {@link IGridConnectedBlockEntity}，宽口径，含线缆/总线等全部网格宿主）、带方块实体
-     * 且其方块提供 ticker、或方块本身随机 tick。空气与「三者皆无」的纯装饰方块不缓存。
+     * 重新扫描影响范围立方体（委托 {@link TorchTargetScanner}），把范围内「可能被加速」的方块
+     * 缓存进列表，避免每 tick 全量遍历整块区域。范围/倍数配置在变化时也会迫使下一 tick 立即重扫。
      */
     private void refreshTargets(ServerLevel level) {
         scanCooldown = SCAN_INTERVAL;
         targets.clear();
-        int minX = worldPosition.getX() - xRange;
-        int minY = worldPosition.getY() - yRange;
-        int minZ = worldPosition.getZ() - zRange;
-        int maxX = worldPosition.getX() + xRange;
-        int maxY = worldPosition.getY() + yRange;
-        int maxZ = worldPosition.getZ() + zRange;
-        for (BlockPos pos : BlockPos.betweenClosed(minX, minY, minZ, maxX, maxY, maxZ)) {
-            if (pos.equals(worldPosition)) {
-                continue;
-            }
-            BlockState state = level.getBlockState(pos);
-            if (state.isAir()) {
-                continue;
-            }
-            Block block = state.getBlock();
-            BlockEntity be = level.getBlockEntity(pos);
-            // 不能把其它加速火把当作加速目标：火把 A 加速火把 B 的方块实体 ticker 时，
-            // B 的 tick 又会反过来去加速 A 的 ticker，两者互相递归直至栈溢出崩溃。
-            if (be instanceof AETorcherinoBlockEntity) {
-                continue;
-            }
-            boolean isAeMachine = isAeGridBlockEntity(be);
-            boolean randomlyTicking = state.isRandomlyTicking();
-            // 只缓存可能被加速（AE 网格设备、有方块实体 tick 或随机 tick）的目标。
-            if (!isAeMachine && be == null && !randomlyTicking) {
-                continue;
-            }
-            BlockEntityType<?> beType = be != null ? be.getType() : null;
-            BlockEntityTicker<BlockEntity> ticker = null;
-            if (beType != null && block instanceof EntityBlock entityBlock) {
-                //noinspection unchecked
-                ticker = (BlockEntityTicker<BlockEntity>) entityBlock.getTicker(level, state, beType);
-            }
-            // betweenClosed 迭代返回可变 BlockPos，需拷贝成不可变快照才能存入缓存。
-            targets.add(new Target(pos.immutable(), isAeMachine, beType, ticker, randomlyTicking));
-        }
-    }
-
-    // ========================= 三条加速路径（原始 Torcherino 式） =========================
-
-    /**
-     * 按缓存目标自身的类型执行命中路径：
-     * <ul>
-     *   <li>AE 网格设备 → 重复驱动网格 tick（{@link #accelerateGridTicks}）；</li>
-     *   <li>方块实体 ticker → 重复调用方块 ticker（{@link #accelerateBlockEntityTicks}）；</li>
-     *   <li>随机 tick → 重复调用方块随机 tick（{@link #accelerateRandomTicks}）。</li>
-     * </ul>
-     * 三条路径对同一目标并行生效；所有调用共享本 tick 的 {@code budget}（逐次按需申请，
-     * 预算耗尽即停止后续调用，保证极端负载下不会越过每 tick 的调用上限）。
-     *
-     * @return 本 tick 是否确实发起过任何加速调用
-     */
-    private boolean accelerate(Level level, Target target, BudgetMeter budget) {
-        boolean didWork = false;
-        BlockPos pos = target.pos;
-        BlockEntity be = level.getBlockEntity(pos);
-        // 仅当方块实体类型未变化时复用缓存，避免误加速已被替换的方块；否则该目标本次跳过，
-        // 下一次重扫会重新缓存，自会纠正。
-        if (be != null && !be.isRemoved() && target.beType != null && be.getType() == target.beType) {
-            if (target.isAeMachine) {
-                didWork |= accelerateGridTicks(be, budget);
-            }
-            if (target.ticker != null) {
-                didWork |= accelerateBlockEntityTicks(be, target.ticker, budget);
-            }
-        }
-        if (target.randomlyTicking) {
-            didWork |= accelerateRandomTicks((ServerLevel) level, pos, level.getBlockState(pos), budget);
-        }
-        return didWork;
-    }
-
-    /**
-     * 核心加速路径之一：AE 机器的实际处理逻辑大多注册为 {@link IGridTickable}（网格 tick）。
-     * 通过 {@link IActionHost} 或 {@link IGridConnectedBlockEntity} 拿到网格节点；这两种接口
-     * 能覆盖 AE2 原版机器与所有附属模组（如 DataEnergistics）的网络设备。
-     * <p>
-     * AE2 机器的处理进度由网格 tick 驱动。多数机器在 {@code tickingRequest} 中只推进一个
-     * 离散步骤并忽略第二个参数（ticksSinceLastCall），因此必须循环调用多次才能真正加速；
-     * 仅少数机器会把该参数当作倍率做乘法。这里统一按 1 tick 循环调用，保证对所有机器都有效。
-     *
-     * @return 是否确实发起过网格 tick 调用
-     */
-    private boolean accelerateGridTicks(BlockEntity blockEntity, BudgetMeter budget) {
-        IGridNode node = getGridNode(blockEntity);
-        if (node == null) {
-            return false;
-        }
-        IGrid grid = safeGrid(node);
-        if (grid == null) {
-            return false;
-        }
-        IGridTickable tickable = node.getService(IGridTickable.class);
-        if (tickable == null) {
-            return false;
-        }
-        // 空闲（睡眠）中的设备无需驱动，直接跳过，避免高倍率下对空闲设备做大量无意义调用。
-        try {
-            if (tickable.getTickingRequest(node).isSleeping()) {
-                return false;
-            }
-        } catch (RuntimeException e) {
-            return false;
-        }
-        boolean didWork = false;
-        for (int i = 0; i < speed - 1; i++) {
-            // 每 tick 预算按次申请：额度耗尽立即停止本目标的剩余调用，后续目标同样受限。
-            if (budget.request(1) <= 0) {
-                return didWork;
-            }
-            try {
-                TickRateModulation modulation = tickable.tickingRequest(node, 1);
-                didWork = true;
-                // 设备在工作结束后会返回 SLEEP，通知 AE2 tick 管理器停止调度，避免无效唤醒。
-                if (modulation == TickRateModulation.SLEEP) {
-                    ITickManager tickManager = grid.getTickManager();
-                    if (tickManager != null) {
-                        tickManager.sleepDevice(node);
-                    }
-                    break;
-                }
-            } catch (Exception e) {
-                Torcherinoaemod.LOGGER.error("Failed while accelerating AE grid tick for {} at {}",
-                        blockEntity.getType(), blockEntity.getBlockPos(), e);
-                return didWork;
-            }
-        }
-        return didWork;
-    }
-
-    /**
-     * 加速路径之二：重复调用目标方块的 {@link EntityBlock#getTicker} 返回的方块实体 ticker
-     * （原版熔炉、第三方机器的处理进度多由方块实体 tick 驱动）。
-     */
-    private boolean accelerateBlockEntityTicks(BlockEntity blockEntity, BlockEntityTicker<BlockEntity> ticker,
-            BudgetMeter budget) {
-        Level level = blockEntity.getLevel();
-        BlockPos pos = blockEntity.getBlockPos();
-        BlockState state = blockEntity.getBlockState();
-        if (level == null) {
-            return false;
-        }
-        boolean didWork = false;
-        for (int i = 0; i < speed - 1; i++) {
-            if (blockEntity.isRemoved()) {
-                return didWork;
-            }
-            // 每 tick 预算按次申请：额度耗尽立即停止本目标的剩余调用，后续目标同样受限。
-            if (budget.request(1) <= 0) {
-                return didWork;
-            }
-            try {
-                ticker.tick(level, pos, state, blockEntity);
-                didWork = true;
-            } catch (Exception e) {
-                Torcherinoaemod.LOGGER.error("Failed while accelerating block entity {} at {}",
-                        blockEntity.getType(), pos, e);
-                return didWork;
-            }
-        }
-        return didWork;
-    }
-
-    /**
-     * 加速路径之三：对可随机 tick 的方块（作物、树苗、原木等）重复调用随机 tick。
-     */
-    private boolean accelerateRandomTicks(ServerLevel level, BlockPos targetPos, BlockState blockState,
-            BudgetMeter budget) {
-        if (!blockState.isRandomlyTicking()) {
-            return false;
-        }
-        boolean didWork = false;
-        for (int i = 0; i < speed - 1; i++) {
-            BlockState current = level.getBlockState(targetPos);
-            if (!current.isRandomlyTicking()) {
-                return didWork;
-            }
-            // 每 tick 预算按次申请：额度耗尽立即停止本目标的剩余调用，后续目标同样受限。
-            if (budget.request(1) <= 0) {
-                return didWork;
-            }
-            try {
-                current.randomTick(level, targetPos, level.getRandom());
-                didWork = true;
-            } catch (Exception e) {
-                Torcherinoaemod.LOGGER.error("Failed while accelerating random tick block at {}", targetPos, e);
-                return didWork;
-            }
-        }
-        return didWork;
-    }
-
-    // ========================= AE 设备判定（宽口径） =========================
-
-    /** 判断一个方块实体是否为 AE 网格设备：实现 {@link IActionHost} 或 {@link IGridConnectedBlockEntity}，涵盖 AE2 原版机器与所有附属模组。 */
-    private static boolean isAeGridBlockEntity(@Nullable BlockEntity be) {
-        return be instanceof IActionHost || be instanceof IGridConnectedBlockEntity;
-    }
-
-    /**
-     * 从方块实体解析网格节点：优先取 {@link IActionHost} 的可行动节点，其次取
-     * {@link IGridConnectedBlockEntity} 的主节点。
-     */
-    @Nullable
-    private IGridNode getGridNode(BlockEntity blockEntity) {
-        if (blockEntity instanceof IActionHost actionHost) {
-            IGridNode node = actionHost.getActionableNode();
-            if (node != null) {
-                return node;
-            }
-        }
-        if (blockEntity instanceof IGridConnectedBlockEntity gridConnected) {
-            return gridConnected.getMainNode().getNode();
-        }
-        return null;
-    }
-
-    /**
-     * 安全读取节点当前所属网格：AE2 的 {@code GridNode.getGrid()} 在节点未入网/销毁时会抛
-     * {@link IllegalStateException} 而非返回 {@code null}，这里统一捕获并转译为 {@code null}。
-     */
-    @Nullable
-    private static IGrid safeGrid(IGridNode node) {
-        try {
-            return node.getGrid();
-        } catch (IllegalStateException e) {
-            return null;
-        }
+        targets.addAll(TorchTargetScanner.scan(level, worldPosition, xRange, yRange, zRange));
     }
 
     // ========================= 访问器与设置 =========================

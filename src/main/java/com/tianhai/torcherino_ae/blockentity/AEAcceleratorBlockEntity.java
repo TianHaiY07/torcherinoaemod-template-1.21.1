@@ -38,9 +38,11 @@ import com.tianhai.torcherino_ae.core.AccelerationEngine;
 import com.tianhai.torcherino_ae.core.AdaptiveThrottle;
 import com.tianhai.torcherino_ae.core.MultiplierCalculator;
 import com.tianhai.torcherino_ae.core.PowerModel;
+import com.tianhai.torcherino_ae.core.SourceBudget;
 import com.tianhai.torcherino_ae.core.TargetCache;
 import com.tianhai.torcherino_ae.core.TargetRegistry;
 import com.tianhai.torcherino_ae.item.ModItems;
+import com.tianhai.torcherino_ae.util.AeGrid;
 import com.tianhai.torcherino_ae.util.DebugLog;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
@@ -117,9 +119,8 @@ public class AEAcceleratorBlockEntity extends AENetworkedPoweredBlockEntity
     private long smartCheckTick = -1;
     private int smartCpuMultiplier;
 
-    // 单 tick 调用预算计量器：预算值由配置 budget.tickCallsPerSource 决定，变化时重建。
-    private BudgetMeter budgetMeter = BudgetMeter.UNLIMITED_METER;
-    private int budgetLimitTicks = BudgetMeter.UNLIMITED;
+    // 单 tick 调用预算：预算值由配置 budget.tickCallsPerSource 经 TPS 自适应节流决定，变化时重建（见 SourceBudget）。
+    private final SourceBudget budget = new SourceBudget();
 
     // 网络诊断计数器：每累计 20 tick（即 1 秒）输出一次完整连接状态，
     // 便于实时判断加速器是否真正连接上 AE 网络（排查「UI 显示未连接」问题）。
@@ -218,13 +219,8 @@ public class AEAcceleratorBlockEntity extends AENetworkedPoweredBlockEntity
         // 预算上限 = 静态配置（budget.tickCallsPerSource，默认 -1 不限）经 TPS 自适应节流调整后
         // 的生效值（AdaptiveThrottle）：健康负载时原样返回配置值，单 tick 逼近 50ms 硬限时
         // 自动收紧到下限，回落自动恢复。计量器实例被缓存：仅当生效预算变化（配置改动或
-        // 收紧/恢复切换）时才重建，平时每个 tick 零分配。
-        int limit = AdaptiveThrottle.INSTANCE.adjust(RuntimeConfig.budgetTickCallsPerSource());
-        if (limit != budgetLimitTicks) {
-            budgetLimitTicks = limit;
-            budgetMeter = new BudgetMeter(limit);
-        }
-        return budgetMeter;
+        // 收紧/恢复切换）时才重建，平时每个 tick 零分配（缓存在 SourceBudget 持有器内）。
+        return budget.get();
     }
 
     /**
@@ -232,17 +228,13 @@ public class AEAcceleratorBlockEntity extends AENetworkedPoweredBlockEntity
      * <p>
      * AE2 的 {@code GridNode.getGrid()} 在底层节点存在但未入网时抛
      * {@link IllegalStateException} 而非返回 {@code null}（与
-     * {@link AccelerationTarget#gridOf} 转译语义一致）——本方块实体所有内部逻辑与菜单
-     * 统一经此方法取网格，把「无网格」一律转译为 {@code null}，调用方只需判空。
+     * {@link AccelerationTarget#gridOf} 转译语义一致，实现委托 {@code util.AeGrid}）——本方块实体
+     * 所有内部逻辑与菜单统一经此方法取网格，把「无网格」一律转译为 {@code null}，调用方只需判空。
      */
     @Nullable
     @Override
     public IGrid grid() {
-        try {
-            return getMainNode().getGrid();
-        } catch (IllegalStateException destroyed) {
-            return null;
-        }
+        return AeGrid.gridOf(getMainNode().getNode());
     }
 
     @Override

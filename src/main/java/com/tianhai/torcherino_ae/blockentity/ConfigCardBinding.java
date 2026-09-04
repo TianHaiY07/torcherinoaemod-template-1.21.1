@@ -3,6 +3,7 @@ package com.tianhai.torcherino_ae.blockentity;
 import java.util.HashSet;
 import java.util.Set;
 
+import com.tianhai.torcherino_ae.core.TargetRegistry;
 import org.jetbrains.annotations.Nullable;
 
 import appeng.api.inventories.InternalInventory;
@@ -17,11 +18,10 @@ import com.tianhai.torcherino_ae.item.ConfigCardData;
 import com.tianhai.torcherino_ae.item.ModItems;
 import com.tianhai.torcherino_ae.network.DeviceScanner;
 import com.tianhai.torcherino_ae.network.crafting.CraftingSupport;
+import com.tianhai.torcherino_ae.util.ConfigCardScanner;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.resources.ResourceKey;
-import net.minecraft.world.entity.player.Inventory;
-import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 
@@ -195,16 +195,12 @@ public final class ConfigCardBinding {
         }
         // 在线玩家背包中的卡：扫描全部物品槽（主物品栏/装备/副手），清理绑定本机的卡片。
         DeviceId selfId = DeviceId.ofBlock(levelNow.dimension(), host.getBlockPos());
-        for (Player player : levelNow.players()) {
-            Inventory inventory = player.getInventory();
-            for (int i = 0; i < inventory.getContainerSize(); i++) {
-                ItemStack stack = inventory.getItem(i);
-                if (ConfigCardData.isConfigCard(stack)
-                        && ConfigCardData.isBoundTo(stack, selfId)) {
-                    ConfigCardData.unbindAccelerator(stack);
-                }
-            }
-        }
+        ConfigCardScanner.forEachConfigCardInInventories(levelNow.players(),
+                stack -> {
+                    if (ConfigCardData.isBoundTo(stack, selfId)) {
+                        ConfigCardData.unbindAccelerator(stack);
+                    }
+                });
     }
 
     /**

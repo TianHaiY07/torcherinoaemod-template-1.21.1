@@ -11,7 +11,6 @@ import appeng.api.networking.IInWorldGridNodeHost;
 import appeng.api.networking.ticking.IGridTickable;
 import appeng.api.parts.IPart;
 import appeng.api.parts.IPartHost;
-import appeng.parts.AEBasePart;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.world.level.Level;
@@ -118,14 +117,7 @@ public final class DeviceScanner {
      */
     @Nullable
     private static BlockPos resolveDevicePos(@Nullable Object owner) {
-        if (owner instanceof BlockEntity be) {
-            return be.getBlockPos();
-        }
-        if (owner instanceof AEBasePart part) {
-            BlockEntity host = part.getBlockEntity();
-            return host != null ? host.getBlockPos() : null;
-        }
-        return null;
+        return GridOwner.posOf(owner);
     }
 
     /**
@@ -208,18 +200,6 @@ public final class DeviceScanner {
      */
     @Nullable
     public static DeviceId deviceIdOf(@Nullable Object owner) {
-        if (owner instanceof BlockEntity be) {
-            Level level = be.getLevel();
-            return level == null ? null : DeviceId.ofBlock(level.dimension(), be.getBlockPos());
-        }
-        if (owner instanceof AEBasePart part) {
-            BlockEntity host = part.getBlockEntity();
-            if (host == null) {
-                return null;
-            }
-            Level level = host.getLevel();
-            return level == null ? null : DeviceId.ofPart(level.dimension(), host.getBlockPos(), part.getSide());
-        }
-        return null;
+        return GridOwner.idOf(owner);
     }
 }

@@ -11,7 +11,6 @@ import appeng.api.networking.IGrid;
 import appeng.api.networking.IGridNode;
 import appeng.api.networking.ticking.IGridTickable;
 import appeng.api.networking.ticking.ITickManager;
-import appeng.api.networking.ticking.TickRateModulation;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.entity.BlockEntity;
@@ -114,12 +113,8 @@ public final class AccelerationEngine {
                     continue;
                 }
                 tickManager.alertDevice(node);
-                for (int c = 0; c < granted; c++) {
-                    tickCalls++;
-                    if (tickable.tickingRequest(node, 1) == TickRateModulation.SLEEP) {
-                        break;
-                    }
-                }
+                // 网格 tick 推进循环共用同一原语（SLEEP 早退、调用计数口径一致，见 GridTickAccelerator）。
+                tickCalls += GridTickAccelerator.tick(node, tickable, granted);
             } else {
                 // 原版 tick 设备：无法经 AE2 网格 tick 管理器催促，按倍率反复执行其方块实体的原版 tick。
                 BlockEntityTicker<BlockEntity> vanilla = target.vanillaTicker();

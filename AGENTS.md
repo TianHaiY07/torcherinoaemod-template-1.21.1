@@ -26,7 +26,7 @@
 
 - 平台：NeoForge **1.21.1** / Java 21。`gradle.properties` 关键值：modid `torcherino_ae_mod`、group `com.tianhai.torcherino_ae`、mod_version `1.01`、neo_version `21.1.248`、parchment `1.21.1 / 2024.11.17`。
 - 依赖（`build.gradle`）：AE2（Modrinth Maven `maven.modrinth:XxWD5pD3:DUSBnYm0`）+ GuideME（`maven.modrinth:Ck4E7v7R:9aIv5HxH`，AE2 强制运行时依赖）+ **本地 mods**（项目根 `libs/*.jar` 自动加载进 dev 环境，可放测试用附属 mod）。
-- 单元测试：JUnit 5，现有 **9 个纯逻辑测试类**（见 §10）。**注意**：build.gradle 末段把 main 的 Minecraft/NeoForge 类路径叠加给了 test sourceSet——引用 `net.minecraft.*` 值类型的测试（BlockPos/ResourceLocation/NbtOps）依赖这份类路径，删不得。
+- 单元测试：JUnit 5，现有 **11 个纯逻辑测试类**（见 §9）。**注意**：build.gradle 末段把 main 的 Minecraft/NeoForge 类路径叠加给了 test sourceSet——引用 `net.minecraft.*` 值类型的测试（BlockPos/ResourceLocation/NbtOps）依赖这份类路径，删不得。
 
 ## 4. 当前实际代码结构
 
@@ -53,25 +53,27 @@
   - `AE_TORCHERINO` / `AE_TORCHERINO_TIER_I` / `AE_TORCHERINO_TIER_II`：只建类型、不注入（由方块 `getTicker` 提供），三者各自为独立类型。
 - `blockentity/AEAcceleratorBlockEntity.java`（继承 AE2 `AENetworkedPoweredBlockEntity`，实现 `IUpgradeableObject`/`CommonTickingBlockEntity`/`IAccelerationSource`）：
   - 升级卡库存 4 格（`UpgradeInventories.forMachine`，`UPGRADE_SLOTS=4`）+ 配置卡库存 1 格（委托 `ConfigCardBinding`）。字段 `targetRegistry` 包内可见（同包绑定组件做卡来源注入用）。
-  - **网格安全取值**：AE2 `GridNode.getGrid()` 在节点未入网/销毁时抛 `IllegalStateException` 而非返回 null——全类统一经 `grid()` 捕获转译为 null，调用方只判空。`isActive()` 直接 `getMainNode().isActive()`（AE2 对未入网节点内部短路安全），`onMainNodeStateChanged` 里 `setOnline(grid != null && getMainNode().isOnline())` 以权威事件驱动 online，**不在 commonTick 重算**（该处 getGrid() 时机不可靠会把 online 覆写回 false）；setOnline 的调试日志经安全取的网格能量服务读 isPowered，不裸调 `getMainNode().isPowered()`（内部走 getGrid() 会抛 ISE）。
+  - **网格安全取值**：AE2 `GridNode.getGrid()` 在节点未入网/销毁时抛 `IllegalStateException` 而非返回 null——全项目统一经 `util/AeGrid.gridOf(node)` 转译为 null（`grid()` 即其薄委托），调用方只判空。`isActive()` 直接 `getMainNode().isActive()`（AE2 对未入网节点内部短路安全），`onMainNodeStateChanged` 里 `setOnline(grid != null && getMainNode().isOnline())` 以权威事件驱动 online，**不在 commonTick 重算**（该处 getGrid() 时机不可靠会把 online 覆写回 false）；setOnline 的调试日志经安全取的网格能量服务读 isPowered，不裸调 `getMainNode().isPowered()`（内部走 getGrid() 会抛 ISE）。
   - `commonTick()`（服务端）：客户端直接 return（刻意设计）；经 `grid()` 取值，`grid == null || !isActive` → `setWorking(false)` 返回；否则**先 `AccelerationEngine.pulse(this)` 统计真实工作量**，仅当 `result.didWork()` 才 `grid.getEnergyService().extractAEPower(needed, ...)` 并按 `available >= needed * powerBufferFraction` 判定 working——空闲时不耗电不标记工作（节能，方块停 in `on` 模型）。每 `debug.sampleIntervalTicks` tick 输出一次网络/工作诊断（DebugLog）。
   - `getAccelMultiplier()`：`MultiplierCalculator.compute(基础4 × 2^I × 4^II × 8^III)` 再套 `accelerator.maxMultiplierCap` 硬上限（-1 表示不限制）。能耗 `PowerModel.requiredPerTick(每tick固定 + 每卡线性 + 每登记设备)`，与倍率复合累乘无关（刻意脱钩）。
   - 目标管理（供菜单）：`targetRegistryVersion()`、`isAccelerating(id)`、`getDeviceMultiplier(id)`（未登记按当前最高倍数返回，供界面展示与滑块初值）、`setDeviceMultiplier(id, mult)`（≤1 移除该 PLAYER 来源登记；>1 钳到当前最高倍数；**若设备仍被卡注入，下次卡片同步会恢复——玩家要彻底停卡管理的设备应取卡**）、`toggleAcceleratedDevice(id)`。
   - 智能加速：`rebuildTargets()` 单次遍历网格产出「已登记设备」与「智能联动目标」（记入 `craftingLinkedIds`，范围由配置 `crafting.smartAccelerateScope` 控制：`ALL_ACCELERATABLE` 默认联动网内全部可加速设备—零配置兼容任意第三方 AE 工作机器；`CRAFTING_MACHINES` 仅联动 ICraftingProvider 服务宿主与 `CraftingSupport.isCraftingMachineType` 命中者）；`multiplierFor` 对已登记返回登记值，否则若在 `craftingLinkedIds` 且 `crafting.smartAccelerateEnabled` 开启则返回「当前智能倍率」（以游戏时间为键每 tick 缓存：扫描被选中 `isAccelerated` 且 `isBusy()` 的 CPU 的登记倍率最大值）；否则 1。
   - 状态流：online/working 经 `writeToStream/readFromStream` 同步客户端并驱动模型切换（`markForUpdate` 切方块状态、`markForClientUpdate` 同步 GUI）。NBT：`saveAdditional/loadTag` 持久化配置卡库存（binding）与 `TargetRegistry`（含来源标记）；加载后 `markTargetsDirty()`。
-- `blockentity/AETorcherinoBlockEntity.java`（普通 BlockEntity，**不实现 `IAccelerationSource`、不经过 `AccelerationEngine`**；服务端 tick 由方块 `getTicker` 提供，客户端不执行）：
+- `blockentity/AETorcherinoBlockEntity.java`（普通 BlockEntity，**不实现 `IAccelerationSource`、不经过 `AccelerationEngine`**；服务端 tick 由方块 `getTicker` 提供，客户端不执行；目标扫描与三条加速路径已拆至同包 `TorchTargetScanner`/`TorchAccelerator`）：
   - 独立范围扫描（原始 Torcherino 式）：X/Z/Y 范围默认 3/3/2、`speed` 默认取 `ConfigDefaults.TORCHERINO_MAX_SPEED`；setter 一律 `clampRange(v, RuntimeConfig 上限)`，变化后置 `scanCooldown=0` 强制下一 tick 重扫 + 存档 + `sendBlockUpdated`。NBT 键 `x_range/z_range/y_range/speed/enabled`，加载后 clamp 并保底 speed≥1、旧档无开关标签默认开启。`isActive() = enabled && speed > 1 && !isRangeEmpty()`。**模型开关同步**：`setEnabled` 变化即时经 `AETorcherinoBlock.applyEnabledState` 写入方块状态（`level.setBlock(..., Block.UPDATE_CLIENTS)`）驱动 off/点亮模型切换；每次加载首帧 `syncEnabledBlockStateOnce` 兜底一次，修复旧档状态缺 `enabled` 属性导致的变体缺失（正常状态零开销空操作）。
-  - 目标缓存：每 `SCAN_INTERVAL`（20）tick 重扫 `betweenClosed` 立方体（排除自身），把候选方块（AE 网格宿主 `IActionHost`/`IGridConnectedBlockEntity`、带方块实体 ticker、或随机 tick 方块）缓存为 `Target` 不可变快照；执行前校验方块实体类型未变，防止误加速被替换方块。
-  - 三条加速路径对同一目标各自并行生效：AE 网格 tick（`IGridTickable` 重复 `tickingRequest(node,1)`，返回 `SLEEP` 时 `ITickManager.sleepDevice` 早退）、方块实体 ticker（`EntityBlock.getTicker` 重复调用）、随机 tick（`BlockState.randomTick`）。
-  - **性能预算**：每 tick 先 `budget().resetTick()`——`budget()` 上限 = 配置 `budget.tickCallsPerSource` 经 `AdaptiveThrottle.INSTANCE.adjust` 的生效值（默认 -1 不限，实例仅在生效预算变化时重建）；三条路径每次调用前 `budget.request(1)` 按次申请，额度耗尽即停止剩余调用。火把因此与加速器共享同一套 TPS 自适应节流（拖垮 TPS 时逐档削峰）。
+  - 目标扫描（委托 `TorchTargetScanner.scan`）：每 `SCAN_INTERVAL`（20）tick 重扫 `betweenClosed` 立方体（排除自身），把候选方块（AE 网格宿主 `IActionHost`/`IGridConnectedBlockEntity`、带方块实体 ticker、或随机 tick 方块）缓存为 `Target` 不可变快照；执行前校验方块实体类型未变，防止误加速被替换方块。
+  - 三条加速路径委托 `TorchAccelerator.accelerate`（同一目标各自并行生效）：AE 网格 tick（`IGridTickable` 重复 `tickingRequest(node,1)`，返回 `SLEEP` 时 `ITickManager.sleepDevice` 早退）、方块实体 ticker（`EntityBlock.getTicker` 重复调用）、随机 tick（`BlockState.randomTick`）。
+  - **性能预算**：每 tick 先 `budget().resetTick()`——`budget()` 经 `core/SourceBudget` 读生效值 = 配置 `budget.tickCallsPerSource` 经 `AdaptiveThrottle.INSTANCE.adjust`（实例仅在生效预算变化时重建）；三条路径每次调用前 `budget.request(1)` 按次申请，额度耗尽即停止剩余调用。火把因此与加速器共享同一套 TPS 自适应节流（拖垮 TPS 时逐档削峰）。
   - **分级变体**：`AETorcherinoTier1BlockEntity`/`AETorcherinoTier2BlockEntity` 继承本类，经受保护的四参构造器注入各自 `BlockEntityType` 与固定默认倍率，覆写 `maxSpeed()` 返回各自上限（64/324），不受 `torcherino.maxSpeed` 配置约束；其余逻辑（范围/倍率可调、加速路径、预算）全部复用基类。`getSpeed()` 读的是被构造器赋值的 `speed` 字段，因此分级火把放置时默认即为其上限。
+- `blockentity/TorchTargetScanner.java`：火把影响范围目标扫描器（`scan(level, self, x/y/zRange)` 产出不可变 `Target` 快照列表），判定候选为「AE 网格宿主 / 带方块实体 ticker / 随机 tick」，排除自身与其它火把（防互相递归）。与加速路径解耦、独立可测。
+- `blockentity/TorchAccelerator.java`：火把「三条加速路径」执行器（`accelerate(level, target, speed, budget)`）：AE 网格 tick / 方块实体 ticker / 随机 tick 对同一目标并行叠加；所有调用共享 `budget`（逐次按需申请）并按 `speed-1` 上限反复推进；面向任意方块，每目标包一层防御性 `try/catch`，防止某异常方块拖垮服务端单 tick。节点解析（`getGridNode`/`AeGrid.gridOf`）纳入本类。
 - `blockentity/ConfigCardBinding.java`（与宿主同包协作：网格经 `host.grid()`、登记表经包内 `host.targetRegistry`）：
   - 单格配置卡库存过滤器：仅接受「本模组配置卡 && 已绑定本机」（`isBoundToSelf` 绑定比较含维度与坐标，异地卡片与未绑定卡一律拒绝）。
   - `syncConfigCardDevices`（触发点：卡槽内容变化 `onHostInventoryChanged`、宿主 `onMainNodeStateChanged` 以卡槽为参显式重调）：**单次遍历网格**收集本网络内可加速设备标识与卡上绑定集合求交集（满绑定 64 条时不退化为 64 次全网格遍历）；**并追加 `grid.getCraftingService().getCpus()` 枚举的合成 CPU 组**（CPU 多块组经 `CraftingSupport.cpuDeviceId` 取组标识，与卡上绑定交集合入同一 `inNetwork` 集——绑定的 CPU 在卡入槽后即等同「选中该 CPU 智能加速」）；注入「卡上且网络内且当前未被任何来源加速」的设备、按当前最高倍数记 `CONFIG_CARD` 来源；撤销「已是 CONFIG_CARD 来源但已不在卡上/网络内」的设备；变化才 `markTargetsDirty + saveChanges`。
-  - `onHostRemoved`（宿主 `setRemoved` 调，仅服务端）：清空槽位内卡片绑定 + 扫描在线玩家全部物品槽清理绑定本机的卡（防「即插即用」配置指向已摧毁的加速器）。
+  - `onHostRemoved`（宿主 `setRemoved` 调，仅服务端）：清空槽位内卡片绑定 + 经 `util/ConfigCardScanner` 扫描在线玩家全部物品槽清理绑定本机的卡（防「即插即用」配置指向已摧毁的加速器）。
   - `save/load`：库存 NBT 持久化。
 - `blockentity/ConfigCardCleanup.java`（服务端「设备/合成 CPU 组被破坏」的即时清理协调器，监听 `BlockEvent.BreakEvent`、爆炸事件、方块实体 `setRemoved` 与 `ServerTickEvent.Post`）：
-  - 普通设备（方块实体/部件）拆除：`recordRemoval` 捕获方块状态+网格 → 延迟 1 tick 确认「即时拆除」未被取消/替换 → 清理玩家背包与网络内加速器配置卡上的该设备绑定并精确撤销 `CONFIG_CARD` 登记。
+  - 普通设备（方块实体/部件）拆除：`recordRemoval` 捕获方块状态+网格 → 延迟 1 tick 确认「即时拆除」未被取消/替换 → 经 `util/ConfigCardScanner` 清理玩家背包与网络内加速器配置卡上的该设备绑定并精确撤销 `CONFIG_CARD` 登记。
   - **合成 CPU 组（AE2 原版 + AdvancedAE 大型 CPU 软兼容）**：成员块拆除经 `CraftingSupport.cpuGroupOf(be,true)` 快照整组成员坐标走 `CpuRemoval` 整组通道，等 `CPU_SETTLE_TICKS`(4) tick 让集群「整体解散+剩余重算再成型」结算完成后观察剩余成员真实成型状态：无残留或残留拆成多个独立组 → `ConfigCardData.removeCpuBinding` 删 CPU 条目连带裁剪几何；恰一组残留 → `replaceCpuBinding` 改写为新集群最小角标识与新几何（部分破坏仍成型的自适应，卡入槽即触发重注入）。裁决只依赖结构标识/坐标，不持有集群对象引用（集群销毁后不再可信）。
   - 自清理：卡槽内卡片经 `inventory.setItemDirect` 改写触发 `onHostInventoryChanged → syncConfigCardDevices()` 自动精确重同步；玩家背包内卡片在裁决时同步改写。
 
@@ -86,8 +88,10 @@
   - `AccelerationResult`（record：hit/skippedSleeping/skippedInactive/skippedDetached/tickCalls/budgetExhausted + `NONE` + `didWork()`）。
   - `BudgetMeter`：每 tick 调用预算计数器（`UNLIMITED_METER`/`UNLIMITED`），无 MC 运行时依赖。
 - `core/`：
-  - `AccelerationEngine.pulse(source)`：AE 加速器侧的脉冲执行器（火把已独立实现，见 4.2）。流程：`!source.isActive()` 直接返回 `NONE` → `budget.resetTick()` → 逐目标依次判定：① `target.isDetached() || !target.belongsTo(expectedGrid)` → 计 skippedDetached、`markTargetsDirty`（下轮剔除）；② 节点未激活跳过；③ `multiplierFor(id)-1 <= 0` 跳过（倍率 1 即不加速；**先倍率后睡眠**）；④ `getTickingRequest(node).isSleeping()` 跳过（空闲设备催促无意义）；⑤ 预算耗尽 → 结束脉冲；⑥ `alertDevice` 催促后在**同一 tick 内**循环 `tickingRequest(node, 1)`，返回 `TickRateModulation.SLEEP` 立即 break（设备处理中睡眠后继续推进会越过其状态机边界）。**性能约束**：本方法位于每 tick 路径，禁止分配对象、字符串拼接、日志、遍历 `grid.getNodes()`。
-  - `AdaptiveThrottle`（TPS 自适应节流，进程级单例 `INSTANCE`）：主类以 `ServerTickEvent.Pre/Post` 配对计时喂样本（不含补帧 sleep），EMA（α=0.25，时间常数约 4 tick）平滑后与 `adaptive.tightenMs`（默认 45，进入）/`adaptive.relaxMs`（默认 35，退出）双阈值滞回比较。**分级递降削峰**：收紧档位 `level>0` 时生效预算 = `floorCallsPerSource >> (level-1)`（每加深一档减半，最深档收敛到 1≈停加速），单 tick 仍超时则每 tick 加深一档、回落则逐档放松，避免临界负载全速/停转振荡；`level=0` 或 `adaptive.enabled=false` 时预算原样 = 静态配置（含 -1 不限）。关闭时事件计时直接旁路并清零全部状态。预算消费方：加速器 `budget()`（§4.2 上）与火把 `budget()`（§4.2 下）。纯函数 `advanceLevel/effectiveLimit/nextEma` 供单测。
+  - `AccelerationEngine.pulse(source)`：AE 加速器侧的脉冲执行器（火把已独立实现，见 4.2）。流程：`!source.isActive()` 直接返回 `NONE` → `budget.resetTick()` → 逐目标依次判定：① `target.isDetached() || !target.belongsTo(expectedGrid)` → 计 skippedDetached、`markTargetsDirty`（下轮剔除）；② 节点未激活跳过；③ `multiplierFor(id)-1 <= 0` 跳过（倍率 1 即不加速；**先倍率后睡眠**）；④ `getTickingRequest(node).isSleeping()` 跳过（空闲设备催促无意义）；⑤ 预算耗尽 → 结束脉冲；⑥ `alertDevice` 催促后在**同一 tick 内**循环 `tickingRequest(node, 1)`（该逐次推进循环共用 `GridTickAccelerator.tick`），返回 `TickRateModulation.SLEEP` 立即 break（设备处理中睡眠后继续推进会越过其状态机边界）。**性能约束**：本方法位于每 tick 路径，禁止分配对象、字符串拼接、日志、遍历 `grid.getNodes()`。
+  - `AdaptiveThrottle`（TPS 自适应节流，进程级单例 `INSTANCE`）：主类以 `ServerTickEvent.Pre/Post` 配对计时喂样本（不含补帧 sleep），EMA（α=0.25，时间常数约 4 tick）平滑后与 `adaptive.tightenMs`（默认 45，进入）/`adaptive.relaxMs`（默认 35，退出）双阈值滞回比较。**分级递降削峰**：收紧档位 `level>0` 时生效预算 = `floorCallsPerSource >> (level-1)`（每加深一档减半，最深档收敛到 1≈停加速），单 tick 仍超时则每 tick 加深一档、回落则逐档放松，避免临界负载全速/停转振荡；`level=0` 或 `adaptive.enabled=false` 时预算原样 = 静态配置（含 -1 不限）。关闭时事件计时直接旁路并清零全部状态。预算消费方：加速器 `budget()`（§4.2 上）与火把 `budget()`（§4.2 下），二者经 `SourceBudget` 持有器读取。纯函数 `advanceLevel/effectiveLimit/nextEma` 供单测。
+  - `SourceBudget`：单加速源「每 tick 预算」持有器（`get()` 把静态配置经 `AdaptiveThrottle.adjust` 合成生效预算，仅在生效值变化时重建 `BudgetMeter`，平时零分配）；加速器与火把各持一个实例，共享同一套刷新语义。
+  - `GridTickAccelerator`：网格 tick 黑盒加速的「逐次推进循环」原语（`tick(node, tickable, maxCalls)`，循环 `tickingRequest(node,1)`、`SLEEP` 提前 break、返回含睡眠那次的调用次数）。**不做**预算/调度/异常围栏（那些由调用方按各自语义处理）；`AccelerationEngine` 已复用，火把因需「逐次预算 + `sleepDevice` + 防御性 try/catch」而保留自身循环。
   - `TargetCache`：目标列表 + 置脏即重建 + 周期重建（间隔取 `cache.rebuildIntervalTicks` 当前值，方块每次创建/重开区块读取，默认 20 tick）；`resolve(Supplier)`。
   - `MultiplierCalculator`/`PowerModel`：公式纯函数，默认常量引用 `ConfigDefaults`；`MultiplierCalculator.compute` 中间量先判负再钳 `Integer.MAX_VALUE`（已修 long 溢出返回负数的 bug）。
   - `TargetRegistry`：加速器「谁被加速、多少倍、由谁设置」的唯一状态表，NBT 随档保存来源标记。语义（写代码勿破坏）：每条 `DeviceId` 单记录、`set(id, mult<=1, source)` 即移除该条；`set` 后写覆盖先写（玩家显式设置优先）；`clearBySource` 按来源精确撤销（取卡不误伤玩家勾选）；`version()` 供菜单缓存失效判断；`save/load` 遇旧键名/坏条目忽略（旧档断档，不崩溃）。
@@ -110,8 +114,9 @@
   - `isAcceleratableMachine(owner)`：非空且不在 `RuntimeConfig.acceleratableBlacklist()`（解析后的 Class 集合 noneMatch isInstance）。
   - `isAcceleratableNode(node, self)`：宿主非空非自身 + 可加速机器 + 可解析坐标，且加速载体之一——注册 `IGridTickable` 服务、或宿主方块实体具有服务端原版 tick（`EntityBlock.getTicker` 非空，用于「接了 AE 网络但加工走原版 tick」的机器）；**不判 isActive**（菜单要展示非活动设备，激活判定留给脉冲）。配套 `isVanillaTicking(be)` / `vanillaTicker(be)` 解析原版 tick。
   - `findAcceleratableNode(be, self, preferSide)`：Level 层 `getCapability(IN_WORLD_GRID_NODE_HOST, pos, null)` 拿宿主；宿主为线缆等多部件宿主（`IPartHost`）时**逐侧枚举部件、以部件自身 `getGridNode()` 判定**——AE2 线缆宿主按方向查询只回线缆自身节点、不暴露部件本体节点，输入/输出总线、破坏面板等部件型可加速设备必须走部件枚举才能命中；多个候选时优先 `preferSide`（玩家点击面）。非部件宿主走原六向遍历取第一个可加速节点。
-  - `deviceIdOf(owner)`：方块实体 → `DeviceId.ofBlock`；AE2 部件 → `DeviceId.ofPart`（所在线缆坐标 + 朝向）；标识带维度（防跨维度同坐标误判，含配置卡绑定）。
-  - `resolveDevicePos` 私有实现不暴露。
+  - `deviceIdOf(owner)`：经 `network/GridOwner.idOf` 委托——方块实体 → `DeviceId.ofBlock`；AE2 部件 → `DeviceId.ofPart`（所在线缆坐标 + 朝向）；标识带维度（防跨维度同坐标误判，含配置卡绑定）。
+  - `resolveDevicePos` 私有实现为 `GridOwner.posOf` 薄委托（不对外暴露）。
+- `network/GridOwner`：网格宿主（方块实体 / AE2 部件）的「世界坐标 / 世界 / 设备标识」统一解析——`posOf/levelOf/idOf`（方块实体用自身；部件用其线缆宿主坐标，`idOf` 另带朝向）。收敛了此前在 `DeviceScanner`、`CraftingSupport.levelPosOf`、`AEAcceleratorMenu.toDeviceEntry` 重复出现的「`instanceof BlockEntity / AEBasePart`」分支。
 - `network/crafting/CraftingSupport`：合成体系辅助，**全项目唯一解析「大型合成 CPU 结构」坐标的地方**（其余一律面向统一的 `CpuGroup` 结构视图，不感知实现）：大型 CPU 有两类来源——AE2 原版合成 CPU（成员方块 `CraftingBlockEntity`、集群 `CraftingCPUCluster`，同时实现 `IAECluster`/`ICraftingCPU`）与 **AdvancedAE 大型 CPU（可选附属，软反射兼容）**（成员方块 `AdvCraftingBlockEntity`、集群 `AdvCraftingCPUCluster` 同样实现 AE2 公共 `IAECluster`，AE2 网格经 `getCpus()` 以 `AdvCraftingCPU` 条目暴露——每条是其巨型集群的「单个任务/剩余容量」视图，同一集群多条、结构标识相同）；本文件对 AdvancedAE **零编译依赖**：`Class.forName(name,false,本类加载器)` 探测类名 + 反射其私有字段 `cluster`（条目→集群）与 `isFormed/getCluster/isActive` 方法，任一步失败视为未安装、行为与未装 AdvancedAE 完全一致；对集群只做 `IAECluster` 层面的坐标读取，不触碰其合成内部逻辑。公开 API：`cpuGroupOf(dim, cpu)`（网格条目侧结构视图：AE2 走 `instanceof CraftingCPUCluster`、Adv 走反射字段，均转 `IAECluster` 读 `getBoundsMin/Max`）、`cpuGroupOf(be, includeMembers)`（方块实体侧，仅服务端返回所属集群；`includeMembers=true` 时快照整组成员坐标，供拆除裁决观察集，常规解析传 false 免整组遍历）、`cpuDeviceId(dim, cpu)`（归一到结构最小角的稳定标识，Adv 同集群多条网格条目天然解析出同 id，与登记表/绑定卡「整组一个标记」一致）、`isCpuGroupMember(be)`（是否为已成形的合成 CPU 组成员，AE2/Adv 客户端方块状态与服务端集群判定两端一致）、`isCpuActive(cpu)`（条目在线状态，供加速器界面展示）、`isCraftingMachineType(owner)` 三级判定——实现 `appeng.api.implementations.blockentities.ICraftingMachine` → 宿主所在块 `AECapabilities.CRAFTING_MACHINE` 能力（能力查询坐标由宿主类型推导：方块实体用自身坐标、部件用其线缆宿主坐标，兼容第三方部件型合成机）→ `grid.craftingMachineExtraTypes` 类型表兜底。
 - `item/`：
   - `ModItems.java`：8 个物品（三个方块 BlockItem + 配置卡 + 3 张升级卡，卡构造传系数 2/4/8）。
@@ -152,7 +157,7 @@
 
 ## 5. 已知注意事项 / 待办
 
-- **AE2 `GridNode.getGrid()` 在「节点未入网/已销毁」时抛 `IllegalStateException` 而非返回 null**——所有读网格处必须经安全取值转译（`AEAcceleratorBlockEntity.grid()`、`AccelerationTarget.gridOf`、菜单经 `host.grid()`），调用方只判空；`setOnline`/诊断勿裸调 `getMainNode().isPowered()`（内部走 getGrid()）。此护栏勿改回直连。
+- **AE2 `GridNode.getGrid()` 在「节点未入网/已销毁」时抛 `IllegalStateException` 而非返回 null**——所有读网格处必须经 `util/AeGrid.gridOf(node)` 安全转译（`AEAcceleratorBlockEntity.grid()`、`AccelerationTarget.gridOf`、火把 `TorchAccelerator`、`ConfigCardCleanup` 等均委托），调用方只判空；`setOnline`/诊断勿裸调 `getMainNode().isPowered()`（内部走 getGrid()）。此护栏勿改回直连。
 - `tickingRequest`（返回 `TickRateModulation` 枚举）与 `getTickingRequest`（返回 `TickingRequest`，才有 `isSleeping()`）**不是一回事，不可混用**。加速脉冲循环内每次检查返回值，`SLEEP` 立即 break（设备空闲后继续推进会越过其状态机边界）。
 - 加速载体分两类：AE2 网格 tick（`IGridTickable`）经网格 tick 管理器催促；或「接了 AE 网络但加工走原版 `BlockEntity` tick」的机器，由 `AccelerationEngine` 按倍率反复执行其原版 tick（ticker 经 `EntityBlock.getTicker` 解析，见 `DeviceScanner`）。仍**不会加速**存储总线、P2P 隧道、能量元件等基础设施（刻意排除，谓词在 `DeviceScanner` + `grid.acceleratableBlacklist`）。
 - 客户端 `commonTick` 提前 return 是**刻意设计**（网络/能量/加速只在服务端；客户端 online/working 全由 writeToStream/readFromStream 同步），勿删。
@@ -187,8 +192,9 @@
 - **P3 配置化**：`config` 三件套落地，全部数值配置化（默认值 = 现网基线）；黑名单/合成机器兜底类型改字符串 FQCN（坏条目告警跳过）；火把 GUI 上限经 `@GuiSync` 下发；UI 缓存优化三处落地（行过滤缓存、行尾图标 Blitter 预建、菜单设备列表登记版本 + 拓扑签名缓存）。
 - **P4 可测性收尾**：`CornerBracketRenderer` 纯几何抽取（`computeSegmentQuads`）+ `AEGuiMetrics` 布局不变量固化，各带单测。取舍：`DeviceEntry`/`DeviceList` 拆纯 POJO + 适配器**不执行**——`@GuiSync` 字段类型须实现 `PacketWritable`（AE2 平台契约），拆分仍无法纯 JVM 直测网络包往返，净收益有限。
 - **后续演进（当前代码已含，待提交）**：批量清理代码注释与文档中对已删除 `docs/architecture.md` 的交叉引用；`neoforge.mods.toml` 模板补齐 `displayURL`/`authors`；配置卡高亮重构为「`RenderPass` 接口 + `ConfigCardRenderPipeline` + `ConfigCardRenderHandler`（单例、AFTER_TRANSLUCENT_BLOCKS 帧驱动）+ `render/pass/ConfigCardHighlightPass` + `render/util/CornerBracketRenderer`」管线；绑定态贴图切换迁至独立 `client/ConfigCardModelRegistration`（`torcherino_ae_mod:bound` 属性）；注册容器补全（`ModItems`/`ModDataComponents`/`ConfigCardEvents`/`ModMenus` 显式化，DeferredRegister 由 4 个增到 6 个）。
+- **P5 公共件收敛（行为零变更）**：AE2 网格安全取值集中到 `util/AeGrid`（原 4 处内联 try/catch 统一委托）；预算「限额变化才重建」的持有器 `core/SourceBudget`；网格 tick 黑盒「逐次推进+ SLEEP 早退」原语 `core/GridTickAccelerator`（引擎复用，火把因其预算粒度/sleepDevice/异常围栏差异保留自身循环）；宿主（方块实体/部件）→ 坐标/世界/设备标识统一解析 `network/GridOwner`；在线玩家背包配置卡遍历 `util/ConfigCardScanner`；火把目标扫描与三条加速路径拆为 `blockentity/TorchTargetScanner`/`TorchAccelerator`；删除孤儿接口 `api/AccelerationShortcut`（方案 C 白盒快路径已回退、无使用方）。
 
-## 9. 单元测试清单（`src/test/java`，共 9 个，`gradlew test` 全绿）
+## 9. 单元测试清单（`src/test/java`，共 11 个，`gradlew test` 全绿）
 
 | 测试类 | 包 | 覆盖对象 |
 |---|---|---|
@@ -198,6 +204,8 @@
 | `PowerModelTest` | core | 能耗公式、缓冲判定 |
 | `TargetCacheTest` | core | 周期重建、置脏即重建 |
 | `TargetRegistryTest` | core | 单记录/覆盖/来源撤销/NBT 往返 |
+| `AdaptiveThrottleTest` | core | EMA 收敛、分级档位推进、生效预算合成 |
+| `GridTickAcceleratorTest` | core | 黑盒推进循环（全额调用/SLEEP 早退/零调用/空参防御/不解析节点字段） |
 | `ConfigCardDataTest` | item | 数据契约读写、MAX_BOUND_DEVICES、绑/解绑、CPU 组外包围盒几何（记录/裁剪/编解码） |
 | `AEGuiMetricsTest` | client | 布局不变量（图标竖排相接、行高、轨道居中） |
 | `CornerBracketRendererTest` | client/render/util | 轴向方帽尺寸/斜线延长/退化/面积守恒 |

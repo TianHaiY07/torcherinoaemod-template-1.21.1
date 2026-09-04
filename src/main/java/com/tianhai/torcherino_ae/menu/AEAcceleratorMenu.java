@@ -12,6 +12,7 @@ import com.tianhai.torcherino_ae.api.DeviceId;
 import com.tianhai.torcherino_ae.blockentity.AEAcceleratorBlockEntity;
 import com.tianhai.torcherino_ae.config.RuntimeConfig;
 import com.tianhai.torcherino_ae.network.DeviceScanner;
+import com.tianhai.torcherino_ae.network.GridOwner;
 import com.tianhai.torcherino_ae.network.crafting.CraftingSupport;
 import appeng.api.networking.IGrid;
 import appeng.api.networking.IGridNode;
@@ -329,19 +330,19 @@ public class AEAcceleratorMenu extends AEBaseMenu {
         }
         ItemStack icon;
         Component name;
-        BlockPos pos;
-
+        // 部件本身不暴露坐标，取其所在线缆/宿主的方块坐标（与设备标识同一口径，见 GridOwner）；
+        // 宿主缺失（理论不可达）时按原逻辑回退原点，仅用于界面展示、排序与搜索。
+        BlockPos pos = GridOwner.posOf(owner);
+        if (pos == null) {
+            pos = BlockPos.ZERO;
+        }
         if (owner instanceof BlockEntity be) {
             var block = be.getBlockState().getBlock();
             icon = new ItemStack(block);
             name = block.getName();
-            pos = be.getBlockPos();
         } else if (owner instanceof AEBasePart part) {
             icon = new ItemStack(part.getPartItem().asItem());
             name = icon.getHoverName();
-            // 部件本身不暴露坐标，取其所在线缆/宿主的方块坐标，用于界面展示、排序与搜索。
-            BlockEntity hostBe = part.getBlockEntity();
-            pos = hostBe != null ? hostBe.getBlockPos() : BlockPos.ZERO;
         } else {
             return null;
         }

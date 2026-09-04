@@ -11,6 +11,7 @@ import org.jetbrains.annotations.Nullable;
 import com.tianhai.torcherino_ae.api.DeviceId;
 import com.tianhai.torcherino_ae.api.DeviceKind;
 import com.tianhai.torcherino_ae.config.RuntimeConfig;
+import com.tianhai.torcherino_ae.network.GridOwner;
 
 import appeng.api.implementations.blockentities.ICraftingMachine;
 import appeng.api.networking.crafting.ICraftingCPU;
@@ -337,19 +338,9 @@ public final class CraftingSupport {
      */
     @Nullable
     private static LevelAndPos levelPosOf(Object owner) {
-        if (owner instanceof BlockEntity be) {
-            Level level = be.getLevel();
-            return level == null ? null : new LevelAndPos(level, be.getBlockPos());
-        }
-        if (owner instanceof AEBasePart part) {
-            BlockEntity host = part.getBlockEntity();
-            if (host == null) {
-                return null;
-            }
-            Level level = host.getLevel();
-            return level == null ? null : new LevelAndPos(level, host.getBlockPos());
-        }
-        return null;
+        Level level = GridOwner.levelOf(owner);
+        BlockPos pos = GridOwner.posOf(owner);
+        return level == null || pos == null ? null : new LevelAndPos(level, pos);
     }
 
     /**
