@@ -25,6 +25,7 @@ import net.minecraft.core.Direction;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.entity.BlockEntity;
@@ -87,6 +88,22 @@ public final class ConfigCardCleanup {
     private static final int CPU_SETTLE_TICKS = 4;
 
     /**
+     * 合成 CPU 组裁决「观察区含未加载区块」时允许多重试的轮数；超过则放弃本次候选，
+     * 改由周期兜底（{@link #reconcileInventoryCards}）在区块加载后再自愈。
+     */
+    private static final int CPU_SETTLE_MAX_RETRIES = 50;
+
+    /**
+     * 在线玩家背包配置卡「CPU 绑定自愈」周期（tick）。核对卡上记录的合成 CPU 组是否仍
+     * 以真实结构成型，是 {@code ConfigCardCleanup} 破坏事件清理的兜底（见
+     * {@link ConfigCardBinding#reconcileCpuBindingsOnCard}）。
+     */
+    private static final int INVENTORY_RECONCILE_INTERVAL = 40; // 2 秒
+
+    // 在线玩家背包卡自愈计数器（仅服务端逻辑 tick 线程访问）。
+    private static int inventoryReconcileTicks;
+
+    /**
      * 一个「方块被移除」候选：破坏前的方块状态（用于延迟一帧核对是否真的被移除）与
      * 破坏前所在 AE 网格（仅当被破坏方块是网格节点宿主时存在，用于定位同网络加速器）。
      */
@@ -98,7 +115,7 @@ public final class ConfigCardCleanup {
      * 观察剩余成员的真实成型状态）、组标识（最小角）与组所在网格（定位同网络加速器）。
      */
     private record CpuRemoval(ServerLevel level, BlockPos removedPos, BlockState capturedState, DeviceId cpuId,
-            List<BlockPos> memberPositions, @Nullable IGrid grid, int queuedTick) {
+            List<BlockPos> memberPositions, @Nullable IGrid grid, int queuedTick, int attempts) {
     }
 
     // 本 tick 内待结算的普通设备移除候选（仅服务端逻辑 tick 线程访问，无需同步）。
@@ -180,7 +197,7 @@ public final class ConfigCardCleanup {
         // 组所在网格经拆除位置的能力解析（AE2 / AdvancedAE CPU 成员方块同为网格节点宿主，
         // 与集群对象取到的网格一致）；解析失败仅退化为「清背包卡片」，不影响玩家手持卡清理。
         CPU_PENDING.add(new CpuRemoval(level, pos, state, cpuId, new ArrayList<>(group.members()),
-                gridOf(level, pos), now));
+                gridOf(level, pos), now, 0));
     }
 
     /**
@@ -209,10 +226,16 @@ public final class ConfigCardCleanup {
      */
     @SubscribeEvent
     public static void onServerTickEnd(ServerTickEvent.Post event) {
+        MinecraftServer server = event.getServer();
+        // 周期兜底：核对在线玩家背包中配置卡绑定的合成 CPU 组是否仍真实成型（不依赖破坏事件，
+        // CPU 经任何途径失效——L 形等无效形状、事件漏网、定位失败——都能被及时清掉/换绑）。
+        if (++inventoryReconcileTicks > INVENTORY_RECONCILE_INTERVAL) {
+            inventoryReconcileTicks = 0;
+            reconcileInventoryCards(server);
+        }
         if (PENDING.isEmpty() && CPU_PENDING.isEmpty()) {
             return;
         }
-        MinecraftServer server = event.getServer();
         if (!PENDING.isEmpty()) {
             List<Removal> batch = new ArrayList<>(PENDING);
             PENDING.clear();
@@ -220,6 +243,34 @@ public final class ConfigCardCleanup {
         }
         if (!CPU_PENDING.isEmpty()) {
             processCpuRemovals(server);
+        }
+    }
+
+    /**
+     * 周期兜底：逐张扫描在线玩家背包中的配置卡，按世界几何校验其绑定的合成 CPU 组
+     * （记录的结构失效即删除/换绑）。它补充了破坏事件清理覆盖不到的缺口——卡片暂存背包 /
+     * 手持、CPU 经改动形状等非事件途径失效、拆除事件漏网时，卡上记录不再永久残留。
+     * <p>
+     * 不枚举箱子/ME 存储等不可遍历容器与离线玩家（无法枚举），这类卡片在下次被取用/
+     * 放入加速器时经对应自愈路径处理。
+     */
+    private static void reconcileInventoryCards(MinecraftServer server) {
+        List<ServerPlayer> players = server.getPlayerList().getPlayers();
+        if (players.isEmpty()) {
+            return;
+        }
+        for (ServerPlayer player : players) {
+            var inventory = player.getInventory();
+            for (int i = 0; i < inventory.getContainerSize(); i++) {
+                ItemStack stack = inventory.getItem(i);
+                if (!ConfigCardData.isConfigCard(stack)) {
+                    continue;
+                }
+                if (ConfigCardBinding.reconcileCpuBindingsOnCard(stack, dim -> server.getLevel(dim))) {
+                    // 改写玩家背包内的卡片（数据组件已就地更新，回写以触发客户端同步）。
+                    inventory.setItem(i, stack);
+                }
+            }
         }
     }
 
@@ -296,6 +347,15 @@ public final class ConfigCardCleanup {
         ServerLevel level = removal.level();
         for (BlockPos memberPos : removal.memberPositions()) {
             if (!level.isLoaded(memberPos)) {
+                // 观察区尚有区块未加载：本次无法可靠裁决。重排该候选等待区块加载（有重试上限
+                // 防止永久不加载的区域无限排队）；超限后放弃——届时由周期兜底
+                // （reconcileCpuBindings 的几何自愈）在区块加载后再清理卡片记录。
+                if (removal.attempts() >= CPU_SETTLE_MAX_RETRIES) {
+                    return;
+                }
+                CPU_PENDING.add(new CpuRemoval(removal.level(), removal.removedPos(), removal.capturedState(),
+                        removal.cpuId(), removal.memberPositions(), removal.grid(), removal.queuedTick(),
+                        removal.attempts() + 1));
                 return;
             }
         }

@@ -12,19 +12,32 @@ import net.minecraft.world.level.block.entity.BlockEntityTicker;
 /**
  * 已解析的加速目标：在缓存重建期把「身份 / 网格节点 / 加速载体」一次性解析到位，
  * 脉冲期直接使用。每 tick 的加速路径因此不需要再做任何查找、强转或服务查询，
- * 只对已解析好的节点发起调用。
+ * 只对已解析好的节点/方块实体发起调用。
  * <p>
- * 加速载体有两种，二选一（可能两者都非空，但引擎优先走 {@link #tickable()}）：
+ * 目标分两类（由 {@code node} 是否为空区分）：
  * <ul>
- *   <li>{@code tickable}：AE2 网格 tick 服务（{@link IGridTickable}，{@code isGridTicking()==true}），
- *       经 AE2 网格 tick 管理器催促；</li>
- *   <li>{@code vanillaTicker}：宿主方块实体的<b>原版</b> tick 函数（{@link BlockEntityTicker}，
- *       经 {@code EntityBlock.getTicker} 取自方块），用于「接了 AE 网络但加工走原版 tick」的机器，
- *       由引擎直接按倍率反复执行其原版 tick。</li>
+ *   <li><b>网格目标</b>（{@code node != null}）：接入 AE 网络的设备。加速载体两种、二选一
+ *       （可能同时非空，但引擎优先走 {@link #tickable()}）：
+ *       <ul>
+ *         <li>{@code tickable}：AE2 网格 tick 服务（{@link IGridTickable}，
+ *             {@code isGridTicking()==true}），经 AE2 网格 tick 管理器催促；</li>
+ *         <li>{@code vanillaTicker}：宿主方块实体的<b>原版</b> tick 函数
+ *             （{@link BlockEntityTicker}，经 {@code EntityBlock.getTicker} 取自方块），
+ *             用于「接了 AE 网络但加工走原版 tick」的机器，由引擎直接按倍率反复执行
+ *             其原版 tick。</li>
+ *       </ul></li>
+ *   <li><b>无节点目标</b>（{@code node == null}）：<b>未接入 AE 网络</b>、但被样板供应器
+ *       投放材料的下游方块（第三方科技 mod 的原版 tick 机器，如 Mekanism 设备——
+ *       供应器经原版物品容器能力直接投料）。加速载体只有 {@code vanillaTicker}（必有），
+ *       {@code blockEntity} 为其方块实体引用（原版 tick 路径的执行载体，同时作
+ *       「方块是否仍存在」的失效校验依据）。不经网格：无激活/断电概念、无睡眠状态。该类
+ *       目标只能由「样板供应器下游联动」产生（见 {@code AEAcceleratorBlockEntity}
+ *       的 {@code collectDownstreamTargets}），玩家无法在 GUI 中直接勾选。</li>
  * </ul>
  */
-public record AccelerationTarget(DeviceId id, IGridNode node, @Nullable IGridTickable tickable,
-                                 @Nullable BlockEntityTicker<BlockEntity> vanillaTicker) {
+public record AccelerationTarget(DeviceId id, @Nullable IGridNode node, @Nullable IGridTickable tickable,
+                                 @Nullable BlockEntityTicker<BlockEntity> vanillaTicker,
+                                 @Nullable BlockEntity blockEntity) {
 
     /** 是否走 AE2 网格 tick 加速路径（有 {@link IGridTickable} 服务）。 */
     public boolean isGridTicking() {
@@ -39,7 +52,8 @@ public record AccelerationTarget(DeviceId id, IGridNode node, @Nullable IGridTic
      * 会抛 {@link IllegalStateException}（"A node is being used after it has been destroyed."）
      * 而不是返回 {@code null}——缓存中的目标在方块拆除与缓存重建之间存在存活窗口，
      * 逐 tick 的脉冲路径必须把「已销毁」同样视为脱离，否则会在每 tick 路径上崩溃
-     * （见 {@link #gridOf}）。
+     * （见 {@link #gridOf}）。节点为 {@code null} 的无节点目标不适用本方法与
+     * {@link #belongsTo}（引擎对其走专用分支，以 {@code blockEntity} 是否被移除作失效校验）。
      */
     public boolean isDetached() {
         return gridOf(node) == null;
@@ -48,6 +62,7 @@ public record AccelerationTarget(DeviceId id, IGridNode node, @Nullable IGridTic
     /**
      * 节点是否属于指定网格；传入 {@code null} 时任意网格都算匹配
      * （源未入网时不做网格一致性校验）。节点已销毁时按不属于任何网格处理。
+     * 无节点目标不适用本方法（见 {@link #isDetached}）。
      */
     public boolean belongsTo(IGrid grid) {
         if (grid == null) {

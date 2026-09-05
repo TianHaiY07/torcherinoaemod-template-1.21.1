@@ -24,6 +24,7 @@
   "gui.torcherino_ae_mod.ae_accelerator.working": "Working",
   "gui.torcherino_ae_mod.ae_accelerator.idle": "Connected, waiting for power",
   "gui.torcherino_ae_mod.ae_accelerator.offline": "Not connected to network",
+  "gui.torcherino_ae_mod.ae_accelerator.duplicate": "An AE Accelerator already exists in this network!",
   "gui.torcherino_ae_mod.ae_accelerator.search": "Search devices",
   "gui.torcherino_ae_mod.ae_accelerator.empty": "No devices on network",
   "gui.torcherino_ae_mod.ae_accelerator.accelerate": "Left-click to accelerate",

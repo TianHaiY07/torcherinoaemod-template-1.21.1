@@ -1,8 +1,12 @@
 package com.tianhai.torcherino_ae.blockentity;
 
 import java.util.ArrayList;
+import java.util.EnumSet;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import org.jetbrains.annotations.Nullable;
@@ -33,6 +37,8 @@ import com.tianhai.torcherino_ae.block.ModBlocks;
 import com.tianhai.torcherino_ae.config.RuntimeConfig;
 import com.tianhai.torcherino_ae.config.SmartAccelerateScope;
 import com.tianhai.torcherino_ae.network.DeviceScanner;
+import com.tianhai.torcherino_ae.network.GridOwner;
+import com.tianhai.torcherino_ae.network.PatternProviderSupport;
 import com.tianhai.torcherino_ae.network.crafting.CraftingSupport;
 import com.tianhai.torcherino_ae.core.AccelerationEngine;
 import com.tianhai.torcherino_ae.core.AdaptiveThrottle;
@@ -46,8 +52,10 @@ import com.tianhai.torcherino_ae.item.ModItems;
 import com.tianhai.torcherino_ae.util.AeGrid;
 import com.tianhai.torcherino_ae.util.DebugLog;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.Tag;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.level.Level;
@@ -116,6 +124,13 @@ public class AEAcceleratorBlockEntity extends AENetworkedPoweredBlockEntity
     // multiplierFor 据此把这类目标按当前智能加速倍率放行。仅在缓存重建期间修改。
     private final Set<DeviceId> craftingLinkedIds = new HashSet<>();
 
+    // 样板供应器下游联动映射：下游设备标识 → 联动它的母样板供应器标识集。
+    // 在 rebuildTargets 期间重建：凡「被加速（登记或智能联动）的样板供应器」，
+    // 其投放方向（PatternProviderSupport.pushDirections）上的相邻可加速设备（且与本源同网格）
+    // 都会记入；multiplierFor 对这些下游设备按「母源生效倍率」放行（供应链联动，
+    // 见 collectDownstreamTargets 与 multiplierFor），使投料链路上下游获得同等加速。
+    private final Map<DeviceId, Set<DeviceId>> downstreamSources = new HashMap<>();
+
     // 智能加速倍率缓存：每个游戏 tick 至多计算一次（扫描被选中且正在合成的 CPU）。
     private long smartCheckTick = -1;
     private int smartCpuMultiplier;
@@ -130,6 +145,25 @@ public class AEAcceleratorBlockEntity extends AENetworkedPoweredBlockEntity
     // 网络诊断计数器：每累计 20 tick（即 1 秒）输出一次完整连接状态，
     // 便于实时判断加速器是否真正连接上 AE 网络（排查「UI 显示未连接」问题）。
     private int diagnosticTimer;
+
+    // 配置卡 CPU 绑定自愈周期：每累计该 tick 数核对一次卡槽内卡片绑定的合成 CPU 组是否仍
+    // 以记录的结构真实成型（失效即删/换绑，见 ConfigCardBinding.reconcileCpuBindings）。
+    // 计数在 commonTick 首部推进，即使加速器未接线/离网也持续自愈。
+    private static final int CPU_BINDING_RECONCILE_INTERVAL = 40; // 2 秒
+    private int cpuBindingReconcileTicks;
+
+    // NBT 存储键名：本机「放置时刻」（同网络仅一台加速器工作的先后判定基准）。
+    private static final String TAG_CREATED_TICK = "created_tick";
+
+    // 本机的「放置时刻」（世界游戏时间，随 NBT 持久化）：首次服务端 tick 记录。
+    // 同网络存在多台加速器时以此裁决「先放置者优先」：后放置者停止工作（不叠加加速）。
+    // Long.MIN_VALUE 表示尚未记录（新放置未首 tick / 旧档无记录），此时按方块坐标字典序
+    // 作确定性平局裁决（见 isNotLaterThan），保证任何时序下只留一台工作。
+    private long createdAtTick = Long.MIN_VALUE;
+
+    // 网络中是否存在「不晚于本机放置」的其它加速器（服务端维护，见 refreshNetworkHasOtherAccelerator）。
+    // 存在时本机停止工作（不叠加加速），GUI 隐藏设备列表并显示「该网络已存在AE加速器！」提示。
+    private boolean networkHasOtherAccelerator;
 
     public AEAcceleratorBlockEntity(BlockEntityType<?> blockEntityType, BlockPos pos, BlockState state) {
         super(blockEntityType, pos, state);
@@ -206,19 +240,56 @@ public class AEAcceleratorBlockEntity extends AENetworkedPoweredBlockEntity
 
     @Override
     public int multiplierFor(DeviceId id) {
-        // 已登记设备（玩家勾选 / 配置卡注入）：用登记表中该设备的独立倍数。
+        // 已登记设备（玩家勾选 / 配置卡注入）用其独立倍数：显式设置优先，不叠加、不被覆盖。
         int registered = targetRegistry.multiplierFor(id, -1);
-        int runCap = runCap();
         if (registered > 1) {
-            // 实际倍率 = min(设定倍率, 被测耗时压到的 runCap)：设定倍率只是总阈值，只往下调不往上超。
-            return Math.min(registered, runCap);
+            return Math.min(registered, runCap());
         }
-        // 未登记但属于智能联动目标：按当前智能加速倍率放行（受配置 crafting.smartAccelerateEnabled
-        // 控制；关闭时返回 1，引擎因 extraCalls<=0 自动跳过，不产生联动加速）。
+        // 未登记：在「样板供应器下游联动（继承母源）倍率」与「自身智能候选倍率」间取最大——
+        // 供应链联动的语义是「投料方在加速、接收方不能掉队」（母源倍率更高时下游同等跟进，
+        // 正是「供应链全部关联设备同等加速」）；自身智能候选更高时（CPU 合成正在用这台机器）
+        // 也不能被供应链低倍率拖累。两条语义独立生效、取强者，与登记优先不冲突。
+        int linked = downstreamLinkedMultiplier(id);
+        int smart = 1;
         if (RuntimeConfig.smartAccelerateEnabled() && craftingLinkedIds.contains(id)) {
-            return Math.min(currentSmartCpuMultiplier(), runCap);
+            smart = currentSmartCpuMultiplier();
+        }
+        int best = Math.max(linked, smart);
+        // 实际倍率 = min(设定倍率, 被测耗时压到的 runCap)：设定倍率只是总阈值，只往下调不往上超。
+        return best > 1 ? Math.min(best, runCap()) : 1;
+    }
+
+    /**
+     * 指定设备的自身生效倍率（不含 {@link #runCap()} 压顶与<b>下游联动递归</b>）：
+     * 已登记（PLAYER / CONFIG_CARD）返回登记值；未登记但在智能联动集内返回
+     * 当前智能加速倍率；两者皆未中返回 1。仅供「下游联动倍率合成」
+     * （{@link #downstreamLinkedMultiplier}）查询母源时使用——母源倍率
+     * 只认登记值/智能倍率，不递归查询母源自己的下游，防止供应链倍率循环放大。
+     */
+    private int sourceMultiplierFor(DeviceId id) {
+        int registered = targetRegistry.multiplierFor(id, -1);
+        if (registered > 1) {
+            return registered;
+        }
+        // 未登记但属于智能联动目标：按当前智能加速倍率放行（受配置
+        // crafting.smartAccelerateEnabled 控制；关闭时返回 1，引擎因 extraCalls<=0
+        // 自动跳过，不产生联动加速）。
+        if (RuntimeConfig.smartAccelerateEnabled() && craftingLinkedIds.contains(id)) {
+            return currentSmartCpuMultiplier();
         }
         return 1;
+    }
+
+    /**
+     * 合成指定设备作为「样板供应器下游」时应继承的联动倍率。
+     * <p>
+     * 经 {@link #downstreamSources} 反向查找联动它的全部母样板供应器，
+     * 取各母源自身生效倍率（{@link #sourceMultiplierFor}，本身也受智能联动规则）的最大值；
+     * 无母源或母源全部 ≤1 时返回 1。母源倍率查询不递归下游（供应链只向下游方向
+     * 单层继承，不会出现倍率循环放大）。
+     */
+    private int downstreamLinkedMultiplier(DeviceId id) {
+        return PatternProviderSupport.linkedMultiplier(downstreamSources.get(id), this::sourceMultiplierFor);
     }
 
     /**
@@ -271,6 +342,22 @@ public class AEAcceleratorBlockEntity extends AENetworkedPoweredBlockEntity
             return;
         }
 
+        // 本机放置时刻：首次服务端 tick 记录（世界游戏时间，随 NBT 持久化）。
+        // 同网络多台加速器时作为「先放置者优先」的先后判定基准（见 isNotLaterThan）。
+        if (createdAtTick == Long.MIN_VALUE) {
+            createdAtTick = level.getGameTime();
+            setChanged();
+        }
+
+        // 配置卡绑定的合成 CPU 组自愈（周期核对，见 ConfigCardBinding.reconcileCpuBindings）：
+        // 破坏清理只由「玩家挖掘/爆炸」事件驱动，CPU 经其它途径失效（改成 L 形等无效形状、
+        // 拆除事件漏网、同网络加速器定位失败）时卡上记录会残留；本判定与网络/电力无关，
+        // 方块实体只要在服务端加载就持续推进，保证失效记录被及时删除或换绑。
+        if (++cpuBindingReconcileTicks >= CPU_BINDING_RECONCILE_INTERVAL) {
+            cpuBindingReconcileTicks = 0;
+            configCardBinding.reconcileCpuBindings();
+        }
+
         // 网络是否「已接入」由 AE2 权威事件 onMainNodeStateChanged 驱动更新（见下方实现），
         // 这里不再重复计算 isOnline，以免 getGrid() 在不一致的调用时机返回 null 把 true 覆盖回 false。
         // 经 grid() 安全取值：节点存活但未入网（孤立摆放 / 断缆瞬间）的窗口内 getGrid() 会抛 ISE，
@@ -288,6 +375,14 @@ public class AEAcceleratorBlockEntity extends AENetworkedPoweredBlockEntity
 
         // 真正的「工作」需要网络已彻底激活 + 网络存在，避免在 boot 期间或未接线时执行工作。
         if (grid == null || !getMainNode().isActive()) {
+            setWorking(false);
+            return;
+        }
+
+        // 同网络已有「先放置的」其它加速器：本机停止工作（不叠加加速）、不耗电、不标记工作，
+        // GUI 隐藏设备列表并显示「该网络已存在AE加速器！」（见 AEAcceleratorMenu / AEAcceleratorScreen）。
+        // 标记由网络节点状态事件即时刷新 + 目标缓存重建周期兜底（见 refreshNetworkHasOtherAccelerator）。
+        if (networkHasOtherAccelerator) {
             setWorking(false);
             return;
         }
@@ -417,29 +512,47 @@ public class AEAcceleratorBlockEntity extends AENetworkedPoweredBlockEntity
     /**
      * 重新遍历网格，把加速目标收集进缓存。
      * <p>
-     * 只遍历网格一次，产出两类目标并写入同一列表（引擎按每台设备的倍率放行）：
+     * 只遍历网格一次，产出两类目标（引擎按每台设备的倍率放行）：
      * <ul>
      *   <li>已登记的设备（玩家勾选 / 配置卡注入）→ 常规加速目标；</li>
      *   <li>未被登记、但被纳入智能联动的设备（见 {@link #shouldSmartLink}，作用域由配置
      *       {@code crafting.smartAccelerateScope} 控制：默认联动网内全部可加速设备以兼容任意
      *       第三方 AE 工作机器；保守模式仅联动 ICraftingProvider 与合成执行机器）→
-     *       标识记入 {@link #craftingLinkedIds}，仅当有正在合成的被选中 CPU 时才被放行。</li>
+     *       标识记入 {@link #craftingLinkedIds}，仅当有正在合成的被选中 CPU 时才被放行；</li>
+     *   <li><b>样板供应器下游联动</b>：凡「被加速（登记或智能联动）的样板供应器」，其投放方向
+     *       （见 {@code PatternProviderSupport}）上的相邻可加速设备若未收录，补进目标列表，
+     *       并记入 {@link #downstreamSources} 使它们继承母源生效倍率（投料供应链联动，
+     *       见 {@link #collectDownstreamTargets}）。</li>
      * </ul>
+     * 设备可能同时属多个类别（登记设备也可能在智能联动候选内）：统一经标识去重表
+     * 合并后返回（任一类别命中即收录一次，倍率裁决见 {@link #multiplierFor}）。
      * 筛选谓词与菜单设备列表采集保持一致（见 {@link DeviceScanner#isAcceleratableNode}）。
      */
     private List<AccelerationTarget> rebuildTargets() {
         IGrid grid = grid();
         if (grid == null) {
             craftingLinkedIds.clear();
+            downstreamSources.clear();
             return List.of();
         }
+        // 顺带刷新「同网络先放置加速器」标记（周期兜底；即时路径见 onMainNodeStateChanged）。
+        refreshNetworkHasOtherAccelerator();
         List<AccelerationTarget> targets = new ArrayList<>();
+        // 去重表用 LinkedHashMap：保持「网格遍历顺序 + 下游增补顺序」稳定输出，
+        // 引擎按目标列表顺序逐台推进（预算耗尽时先到先得），顺序变化会让
+        // 不同设备的预算分配每轮重建时漂移，行为不可预期。
+        Map<DeviceId, AccelerationTarget> byId = new LinkedHashMap<>();
         craftingLinkedIds.clear();
+        downstreamSources.clear();
         for (IGridNode node : grid.getNodes()) {
+            Object owner = node.getOwner();
+            // 其它加速器不是可加速目标（同网络仅先放置者工作，防止互加速与叠加）。
+            if (isAcceleratorOwner(owner)) {
+                continue;
+            }
             if (!DeviceScanner.isAcceleratableNode(node, this)) {
                 continue;
             }
-            Object owner = node.getOwner();
             DeviceId id = DeviceScanner.deviceIdOf(owner);
             if (id == null) {
                 continue;
@@ -452,14 +565,116 @@ public class AEAcceleratorBlockEntity extends AENetworkedPoweredBlockEntity
             if (tickable == null && vanilla == null) {
                 continue;
             }
-            if (targetRegistry.isAccelerated(id)) {
-                targets.add(new AccelerationTarget(id, node, tickable, vanilla));
-            } else if (shouldSmartLink(node)) {
-                targets.add(new AccelerationTarget(id, node, tickable, vanilla));
+            boolean registered = targetRegistry.isAccelerated(id);
+            boolean smartLinked = shouldSmartLink(node);
+            if (!registered && !smartLinked) {
+                continue;
+            }
+            BlockEntity ownerBe = owner instanceof BlockEntity be ? be : null;
+            byId.put(id, new AccelerationTarget(id, node, tickable, vanilla, ownerBe));
+            // 登记设备即使同时是智能联动候选，倍率也以登记值为准（registered 分支优先），
+            // 标识仍纳入联动集以保持智能倍率统计口径与语义一致。
+            if (smartLinked) {
                 craftingLinkedIds.add(id);
             }
+            // 被加速的样板供应器：解析其投放方向上的下游设备并补录（供应链联动）。
+            if (PatternProviderSupport.isPatternProvider(owner)) {
+                collectDownstreamTargets(grid, owner, id, byId);
+            }
         }
+        targets.addAll(byId.values());
         return targets;
+    }
+
+    /**
+     * 收集「样板供应器 → 下游接收设备」的供应链联动目标。
+     * <p>
+     * 样板供应器把材料经投放方向（{@link PatternProviderSupport#pushDirections}）注入
+     * 相邻方块。下游接收者判定分两条路（与投料方式对应）：
+     * <ul>
+     *   <li><b>网格设备</b>：经 {@link DeviceScanner#findAcceleratableNode} 找到可加速节点
+     *       （含黑名单过滤与载体判定），且与本源同一网格——直接贴着的合成机器
+     *       （分子装配室等）、接口、第三方<b>接网</b>制造机均命中；跨网设备不收录
+     *       （引擎的 {@link AccelerationTarget#belongsTo} 校验同样会剔除）；</li>
+     *   <li><b>无节点原版 tick 设备</b>：取不到网格节点时，若相邻方块本身是「原版 tick
+     *       加工设备」（{@link DeviceScanner#vanillaTicker} 非空）且不在可加速黑名单——
+     *       即<b>完全未接 AE 网络</b>的第三方科技 mod 机器（如 Mekanism 设备，供应器经
+     *       原版物品容器能力直接投料）——仍作为下游补录，按<b>纯原版 tick</b>路径加速
+     *       （不经网格：无激活/断电/睡眠概念，见 {@link AccelerationTarget} 无节点目标）。</li>
+     * </ul>
+     * 每台下游设备：
+     * <ul>
+     *   <li>记入 {@link #downstreamSources}（标识 → 母样板供应器标识，多供一时取
+     *       最高母源倍率，见 {@link #downstreamLinkedMultiplier}）；</li>
+     *   <li>若未被主循环收录（未登记且被智能联动作用域排除），补进目标列表——
+     *       例如保守联动模式下的接口、智能加速关闭时的普通机器，以及不接网的
+     *       原版 tick 机器（后者不可能被主循环收录——主循环只遍历网格节点）。</li>
+     * </ul>
+     *
+     * @param grid          当前网格（用于同网格校验）
+     * @param providerOwner 样板供应器网格宿主（方块实体或线缆部件）
+     * @param providerId    该样板供应器的设备标识（作为下游的「母源」记录）
+     * @param targets       目标去重表（按设备标识，重建期间共享）
+     */
+    private void collectDownstreamTargets(IGrid grid, Object providerOwner, DeviceId providerId,
+            Map<DeviceId, AccelerationTarget> targets) {
+        Level world = GridOwner.levelOf(providerOwner);
+        EnumSet<Direction> dirs = PatternProviderSupport.pushDirections(providerOwner);
+        if (world == null || dirs == null || dirs.isEmpty()) {
+            return;
+        }
+        BlockPos origin = GridOwner.posOf(providerOwner);
+        if (origin == null) {
+            return;
+        }
+        for (BlockPos adjPos : PatternProviderSupport.downstreamPositions(origin, dirs)) {
+            if (!world.isLoaded(adjPos)) {
+                continue;
+            }
+            BlockEntity adjBe = world.getBlockEntity(adjPos);
+            DeviceId downId;
+            if (adjBe == null) {
+                continue;
+            }
+            // 复用统一谓词解析相邻方块的可加速节点（方块实体或线缆部件均可，
+            // 见 DeviceScanner.findAcceleratableNode 的部件枚举逻辑）。
+            IGridNode downNode = DeviceScanner.findAcceleratableNode(adjBe, this, null);
+            if (downNode == null) {
+                // 无节点兜底：相邻方块是未接 AE 网络的纯原版 tick 加工设备（第三方
+                // 科技 mod 机器等，供应器经原版物品容器能力直接投料）——取不到网格
+                // 节点，仍作为下游联动，按原版 tick 路径加速（无节点目标，见
+                // AccelerationTarget）。黑名单与载体判定复用 DeviceScanner 谓词。
+                BlockEntityTicker<BlockEntity> downVanilla = DeviceScanner.vanillaTicker(adjBe);
+                if (downVanilla == null || !DeviceScanner.isAcceleratableMachine(adjBe)) {
+                    continue;
+                }
+                downId = DeviceId.ofBlock(world.dimension(), adjPos);
+                downstreamSources.computeIfAbsent(downId, k -> new HashSet<>()).add(providerId);
+                targets.put(downId, new AccelerationTarget(downId, null, null, downVanilla, adjBe));
+                continue;
+            }
+            // 只联动同一网格内的设备：跨网设备即使相邻也不加速。
+            if (AeGrid.gridOf(downNode) != grid) {
+                continue;
+            }
+            Object downOwner = downNode.getOwner();
+            downId = DeviceScanner.deviceIdOf(downOwner);
+            if (downId == null) {
+                continue;
+            }
+            // 记录「下游 → 母源」映射：multiplierFor 据此让下游继承母源生效倍率。
+            downstreamSources.computeIfAbsent(downId, k -> new HashSet<>()).add(providerId);
+            // 下游设备未被主循环收录时补进目标列表（含加速载体解析）。
+            if (!targets.containsKey(downId)) {
+                IGridTickable downTickable = downNode.getService(IGridTickable.class);
+                BlockEntity downOwnerBe = downOwner instanceof BlockEntity be ? be : null;
+                BlockEntityTicker<BlockEntity> downVanilla = downOwnerBe != null
+                        ? DeviceScanner.vanillaTicker(downOwnerBe)
+                        : null;
+                targets.put(downId,
+                        new AccelerationTarget(downId, downNode, downTickable, downVanilla, downOwnerBe));
+            }
+        }
     }
 
     /**
@@ -504,6 +719,64 @@ public class AEAcceleratorBlockEntity extends AENetworkedPoweredBlockEntity
         }
         Object owner = node.getOwner();
         return owner != null && CraftingSupport.isCraftingMachineType(owner);
+    }
+
+    // ========================= 同网络加速器独占（先放置者优先） =========================
+
+    /**
+     * 判断宿主是否为「本模组 AE 加速器」方块实体。
+     * <p>
+     * 供菜单设备列表、网格设备校验与配置卡注入统一过滤：一个网络中只允许一台加速器工作
+     * （先放置者优先），其它加速器既不是可加速目标、也不应出现在设备列表（防止互加速与叠加）。
+     */
+    public static boolean isAcceleratorOwner(Object owner) {
+        return owner instanceof AEAcceleratorBlockEntity;
+    }
+
+    /**
+     * 先者优先裁决：a 是否「不晚于」b（b 是后放置者则停）。
+     * <p>
+     * 两者均已知放置时刻时比较时刻；任一未知（新放置未首 tick、旧档无记录）时按方块坐标
+     * 字典序作为确定性平局裁决（位置较小者视为先放置）。纯静态、可单测。
+     */
+    public static boolean isNotLaterThan(long aTick, BlockPos aPos, long bTick, BlockPos bPos) {
+        if (aTick != Long.MIN_VALUE && bTick != Long.MIN_VALUE) {
+            return aTick <= bTick;
+        }
+        return aPos.compareTo(bPos) <= 0;
+    }
+
+    /**
+     * 网络中是否存在「先放置的」其它加速器（供 GUI 与菜单判断本机是否被独占规则停用）。
+     * <p>
+     * 存在时本机停止工作（不叠加加速），GUI 隐藏设备列表并显示「该网络已存在AE加速器！」。
+     */
+    public boolean networkHasOtherAccelerator() {
+        return networkHasOtherAccelerator;
+    }
+
+    /**
+     * 重新扫描当前网格，刷新「网络中是否存在先放置的其它加速器」标记。
+     * <p>
+     * 触发点：网络节点状态事件（拓扑变化时即时，见 {@link #onMainNodeStateChanged}）与
+     * 目标缓存重建（周期兜底，见 {@link #rebuildTargets}）。客户端节点不入网格，grid() 为
+     * null 时安全保持 false。
+     */
+    private void refreshNetworkHasOtherAccelerator() {
+        IGrid grid = grid();
+        boolean found = false;
+        if (grid != null) {
+            for (IGridNode node : grid.getNodes()) {
+                Object owner = node.getOwner();
+                if (owner instanceof AEAcceleratorBlockEntity other && other != this
+                        && isNotLaterThan(other.createdAtTick, other.getBlockPos(),
+                                createdAtTick, getBlockPos())) {
+                    found = true;
+                    break;
+                }
+            }
+        }
+        networkHasOtherAccelerator = found;
     }
 
     // ========================= 加速目标管理（供菜单调用） =========================
@@ -601,6 +874,8 @@ public class AEAcceleratorBlockEntity extends AENetworkedPoweredBlockEntity
         configCardBinding.save(data, registries);
         // 持久化加速目标登记表（含来源标记），重启后保留玩家设置与卡注入，且可精确撤销。
         targetRegistry.save(data, registries);
+        // 持久化本机放置时刻：重启后两台加速器的先后判定依然成立（先放置者继续工作）。
+        data.putLong(TAG_CREATED_TICK, createdAtTick);
     }
 
     @Override
@@ -610,6 +885,10 @@ public class AEAcceleratorBlockEntity extends AENetworkedPoweredBlockEntity
         configCardBinding.load(data, registries);
         // 恢复目标登记表（含 PLAYER / CONFIG_CARD 来源标记）。
         targetRegistry.load(data, registries);
+        // 恢复放置时刻；旧档无此标签时为 Long.MIN_VALUE，首个 tick 会按当前世界时间重设。
+        createdAtTick = data.contains(TAG_CREATED_TICK, Tag.TAG_LONG)
+                ? data.getLong(TAG_CREATED_TICK)
+                : Long.MIN_VALUE;
         // 目标缓存标脏：首个 tick 会重建；配置卡注入的同步待网格就绪后由节点状态回调触发。
         markTargetsDirty();
     }
@@ -710,6 +989,9 @@ public class AEAcceleratorBlockEntity extends AENetworkedPoweredBlockEntity
         // 并同步客户端。避免只在 commonTick 里计算——因为 IManagedGridNode.getGrid() 在
         // commonTick 调用时机的返回值不可靠（客户端侧永远为 null），导致 online 恒为 false、UI 显示未连接。
         setOnline(grid != null && getMainNode().isOnline());
+        // 网络拓扑变化（含其它加速器接入/移除）时即时刷新「先放置者优先」判定，
+        // 使后放置的加速器在放置瞬间即停止工作（无需等待目标缓存重建周期）。
+        refreshNetworkHasOtherAccelerator();
         // 网格接入状态变化时重新同步「由配置卡注入的设备」（如加载后网格从无到有，
         // 把卡上记录的设备纳入加速；或换网后撤销不再属于本网络的卡设备）。
         configCardBinding.onHostInventoryChanged(getConfigCardInventory(), 0);

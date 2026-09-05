@@ -26,27 +26,27 @@
       "y": 270
     },
     "enabled=true,facing=down": {
-      "model": "torcherino_ae_mod:block/ae_torcherino",
+      "model": "torcherino_ae_mod:block/ae_torcherino_ii",
       "x": 180
     },
     "enabled=true,facing=east": {
-      "model": "torcherino_ae_mod:block/ae_torcherino",
+      "model": "torcherino_ae_mod:block/ae_torcherino_ii",
       "x": 90,
       "y": 90
     },
     "enabled=true,facing=north": {
-      "model": "torcherino_ae_mod:block/ae_torcherino",
+      "model": "torcherino_ae_mod:block/ae_torcherino_ii",
       "x": 90
     },
     "enabled=true,facing=south": {
-      "model": "torcherino_ae_mod:block/ae_torcherino",
+      "model": "torcherino_ae_mod:block/ae_torcherino_ii",
       "x": 270
     },
     "enabled=true,facing=up": {
-      "model": "torcherino_ae_mod:block/ae_torcherino"
+      "model": "torcherino_ae_mod:block/ae_torcherino_ii"
     },
     "enabled=true,facing=west": {
-      "model": "torcherino_ae_mod:block/ae_torcherino",
+      "model": "torcherino_ae_mod:block/ae_torcherino_ii",
       "x": 90,
       "y": 270
     }

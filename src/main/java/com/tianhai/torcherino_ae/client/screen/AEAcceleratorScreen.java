@@ -182,6 +182,11 @@ public class AEAcceleratorScreen extends AEBaseScreen<AEAcceleratorMenu> {
             // 未接入网络：该状态最重要，优先展示。
             status = Component.translatable("gui." + Torcherinoaemod.MOD_ID + ".ae_accelerator.offline");
             color = errorColor;
+        } else if (menu.duplicateAccelerator) {
+            // 同网络已存在先放置的其它加速器：本机被独占规则停用，设备列表已隐藏，
+            // 提示玩家拆除（一个网络只允许一台加速器工作，不叠加）。
+            status = Component.translatable("gui." + Torcherinoaemod.MOD_ID + ".ae_accelerator.duplicate");
+            color = errorColor;
         } else if (menu.devices.devices().isEmpty()) {
             // 在线但网络上没有任何可加速设备。
             status = Component.translatable("gui." + Torcherinoaemod.MOD_ID + ".ae_accelerator.empty");

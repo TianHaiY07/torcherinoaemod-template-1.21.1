@@ -269,6 +269,71 @@ public final class CraftingSupport {
         return List.copyOf(positions);
     }
 
+    // ====================================================================
+    // CPU 组「世界几何真实性」校验（配置卡绑定自愈的权威依据）
+    // ====================================================================
+
+    /**
+     * 服务端：按卡上记录的 CPU 组结构（最小角 = {@code cpuId.pos()}，最大角 = {@code boundsMax}）
+     * 校验当前世界是否仍存在<b>完全一致</b>的成型集群。
+     * <p>
+     * CPU 组由成员方块经 AE2 多块集群机在<b>世界几何层面</b>唯一确定（结构必须是实心无洞的
+     * 方块盒，见 {@link CraftingCPUCluster} 的成型校验；L 形等缺角形状无法成型）：任一成员被
+     * 拆即整组解散、剩余块能否再成型完全由剩余几何决定。因此只要记录的最小/最大角与实际
+     * 成型集群一致，即可断定该绑定仍指向真实存在的 CPU 组——判定不依赖任何破坏事件或网格。
+     *
+     * @return 记录与真实结构一致时返回该组的结构视图；结构已变 / 已失效 / 所在区块未加载时
+     *         返回 {@code null}（区块未加载属「无法判定」，调用方不得据此删绑）
+     */
+    @Nullable
+    public static CpuGroup cpuGroupAt(@Nullable Level level, @Nullable DeviceId cpuId, @Nullable BlockPos boundsMax) {
+        if (level == null || level.isClientSide() || cpuId == null || !cpuId.isCpu()) {
+            return null;
+        }
+        BlockPos min = cpuId.pos();
+        if (!level.isLoaded(min)) {
+            return null;
+        }
+        CpuGroup group = cpuGroupOf(level.getBlockEntity(min), false);
+        if (group == null || !group.id().equals(cpuId)
+                || (boundsMax != null && !group.boundsMax().equals(boundsMax))) {
+            return null;
+        }
+        return group;
+    }
+
+    /**
+     * 服务端：收集某包围盒（记录的最小角 .. 最大角）内<b>仍成型</b>的全部 CPU 组（按组标识去重）。
+     * <p>
+     * 用于配置卡绑定自愈：记录的 CPU 组与真实结构不一致时（部分破坏后剩组仍成型 / 整组失效 /
+     * 记录几何是旧数据），以记录包围盒为观察区定位剩余成型组，再套用与拆除清理一致的
+     * 「删 / 换绑」裁决语义（见 {@code ConfigCardCleanup#resolveCpuFate}）。
+     *
+     * @return 观察区内仍成型的组（0 个 / 恰 1 个 / 多个）；观察区内任一坐标区块未加载时返回
+     *         {@code null}——调用方应放弃本次裁决，避免基于残缺信息误删/误绑
+     */
+    @Nullable
+    public static List<CpuGroup> cpuGroupsWithin(@Nullable Level level, @Nullable BlockPos min, @Nullable BlockPos max) {
+        if (level == null || level.isClientSide() || min == null || max == null) {
+            return null;
+        }
+        List<CpuGroup> groups = new ArrayList<>();
+        for (BlockPos pos : BlockPos.betweenClosed(min, max)) {
+            if (!level.isLoaded(pos)) {
+                return null;
+            }
+            BlockEntity be = level.getBlockEntity(pos);
+            if (be == null) {
+                continue;
+            }
+            CpuGroup group = cpuGroupOf(be, false);
+            if (group != null && groups.stream().noneMatch(other -> other.id().equals(group.id()))) {
+                groups.add(group);
+            }
+        }
+        return groups;
+    }
+
     /**
      * 判断方块实体是否为「已成形的合成 CPU 组」的成员方块。
      * <p>

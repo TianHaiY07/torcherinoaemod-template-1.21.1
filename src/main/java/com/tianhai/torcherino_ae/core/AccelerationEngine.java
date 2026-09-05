@@ -25,13 +25,15 @@ import net.minecraft.world.level.block.state.BlockState;
  * <p>
  * 每台目标的执行顺序：
  * <ol>
- *   <li>节点已脱离网格、或已不属于本源所在网格（换网/被移除）→ 标记缓存重建并跳过；</li>
- *   <li>节点未激活（未通电、未 Boot、通道不足）→ 跳过；</li>
+ *   <li>网格目标：节点已脱离网格、或已不属于本源所在网格（换网/被移除）→ 标记缓存重建并跳过；
+ *       无节点目标（未接 AE 网络的纯原版 tick 下游方块）：方块实体已移除/无载体 → 同样处理；</li>
+ *   <li>网格目标：节点未激活（未通电、未 Boot、通道不足）→ 跳过；无节点目标跳过本步；</li>
  *   <li>该设备倍率小于等于 1 → 跳过（倍率为 1 即表示不加速）；</li>
- *   <li>设备期望睡眠（空闲中）→ 跳过；</li>
+ *   <li>设备期望睡眠（空闲中，仅网格 tick 设备可查）→ 跳过；</li>
  *   <li>向预算申请调用额度，额度不足 → 标记预算耗尽并结束本次脉冲；</li>
- *   <li>{@code alertDevice} 催促，随后在<b>同一个游戏 tick 内</b>额外执行若干次
- *       {@code tickingRequest}，每次检查返回值，设备转为 {@code SLEEP} 立即停止该设备。</li>
+ *   <li>网格 tick 目标：{@code alertDevice} 催促，随后在<b>同一个游戏 tick 内</b>额外执行若干次
+ *       {@code tickingRequest}，每次检查返回值，设备转为 {@code SLEEP} 立即停止该设备；
+ *       原版 tick 目标（含无节点目标）：按倍率直接反复执行其方块实体的原版 tick。</li>
  * </ol>
  * <p>
  * <b>性能约束</b>：本方法位于每 tick 路径上，禁止分配对象、禁止字符串拼接、
@@ -73,16 +75,28 @@ public final class AccelerationEngine {
             AccelerationTarget target = targets.get(i);
             IGridNode node = target.node();
 
-            // 节点已脱离网格或已换网：标记缓存待重建，本次跳过（下次重建时自然剔除）。
-            if (target.isDetached() || !target.belongsTo(expectedGrid)) {
-                skippedDetached++;
-                source.markTargetsDirty();
-                continue;
-            }
-            // 只加速处于激活状态的设备。
-            if (!node.isActive()) {
-                skippedInactive++;
-                continue;
+            if (node == null) {
+                // 无节点目标：未接 AE 网络的纯原版 tick 下游方块（样板供应器下游联动补录）。
+                // 无网格生命周期可依赖，以「方块实体是否仍存在」作失效校验：已移除
+                // 或载体缺失 → 标记缓存待重建，本次跳过（下次重建时经下游解析重新判定）。
+                BlockEntity detachedBe = target.blockEntity();
+                if (detachedBe == null || target.vanillaTicker() == null || detachedBe.isRemoved()) {
+                    skippedDetached++;
+                    source.markTargetsDirty();
+                    continue;
+                }
+            } else {
+                // 网格目标：节点已脱离网格或已换网：标记缓存待重建，本次跳过（下次重建时自然剔除）。
+                if (target.isDetached() || !target.belongsTo(expectedGrid)) {
+                    skippedDetached++;
+                    source.markTargetsDirty();
+                    continue;
+                }
+                // 只加速处于激活状态的设备。
+                if (!node.isActive()) {
+                    skippedInactive++;
+                    continue;
+                }
             }
             // 倍率小于等于 1 表示不加速（设备被取消，或智能加速当前无 CPU 在合成）。
             int extraCalls = source.multiplierFor(target.id()) - 1;
@@ -120,13 +134,19 @@ public final class AccelerationEngine {
                 // 网格 tick 推进循环共用同一原语（SLEEP 早退、调用计数口径一致，见 GridTickAccelerator）。
                 tickCalls += GridTickAccelerator.tick(node, tickable, granted);
             } else {
-                // 原版 tick 设备：无法经 AE2 网格 tick 管理器催促，按倍率反复执行其方块实体的原版 tick。
+                // 原版 tick 设备（含无节点目标）：无法经 AE2 网格 tick 管理器催促，
+                // 按倍率反复执行其方块实体的原版 tick。方块实体的引用优先取目标上
+                // 预解析的字段（无节点目标必传；有节点目标在缓存重建期一并解析），
+                // 兜底回退到节点的宿主（部件型宿主不可能走原版 tick 路径，取不到即跳过）。
                 BlockEntityTicker<BlockEntity> vanilla = target.vanillaTicker();
                 if (vanilla == null) {
                     continue;
                 }
-                Object owner = node.getOwner();
-                if (!(owner instanceof BlockEntity be)) {
+                BlockEntity be = target.blockEntity();
+                if (be == null && node != null && node.getOwner() instanceof BlockEntity ownerBe) {
+                    be = ownerBe;
+                }
+                if (be == null) {
                     continue;
                 }
                 Level level = be.getLevel();

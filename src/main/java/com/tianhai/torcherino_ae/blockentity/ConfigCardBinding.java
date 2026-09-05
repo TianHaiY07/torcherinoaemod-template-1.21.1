@@ -1,7 +1,9 @@
 package com.tianhai.torcherino_ae.blockentity;
 
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
+import java.util.function.Function;
 
 import com.tianhai.torcherino_ae.core.TargetRegistry;
 import org.jetbrains.annotations.Nullable;
@@ -19,6 +21,7 @@ import com.tianhai.torcherino_ae.item.ModItems;
 import com.tianhai.torcherino_ae.network.DeviceScanner;
 import com.tianhai.torcherino_ae.network.crafting.CraftingSupport;
 import com.tianhai.torcherino_ae.util.ConfigCardScanner;
+import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.resources.ResourceKey;
@@ -93,9 +96,99 @@ public final class ConfigCardBinding {
      */
     void onHostInventoryChanged(AppEngInternalInventory inv, int slot) {
         if (inv == configCardInventory) {
-            // 卡片放入/取出/更换 -> 立即同步卡注入的设备（无需等待下一个重建周期）。
+            // 卡片放入/取出/更换：先自愈卡上绑定的合成 CPU 组（记录的结构失效即删/换绑，
+            // 见 reconcileCpuBindings），再同步卡注入的设备（无需等待下一个重建周期）。
+            reconcileCpuBindings();
             syncConfigCardDevices();
         }
+    }
+
+    /**
+     * 自愈校验配置卡上绑定的合成 CPU 组（服务端）：逐条核对卡上记录的「最小角/最大角结构」
+     * 是否仍是当前世界<b>真实成型</b>的集群（CPU 组有效性完全由世界几何决定，见
+     * {@link CraftingSupport#cpuGroupAt}）。
+     * <p>
+     * 触发点：本机定期 tick（方块实体保持加载即持续自愈，即使加速器未接线/离网）与配置卡槽
+     * 内容变化。它是 {@code ConfigCardCleanup} 破坏事件清理的<b>兜底</b>——后者只由「玩家挖掘 /
+     * 爆炸」两类事件派发，且定位同网络加速器依赖拆除位置的能力解析，任一环节脱钩（非成员块
+     * 拆除引发的解散、拆除事件未派发、网格解析失败、卡片暂存他处等）都会让卡上记录残留；
+     * 本方法不依赖事件与网格，直接以世界几何判定并修复。
+     * <p>
+     * 裁决语义与拆除清理一致（见 {@code ConfigCardCleanup#resolveCpuFate}）：记录仍与真实结构
+     * 一致则不动；不一致时以记录包围盒为观察区——恰一个成型组残留则改写为新组标识/几何
+     * （换绑，如拆掉一角/一层后剩余部分仍成型），无残留或拆成多个组则删除该组绑定。观察区
+     * 含未加载区块时放弃（不基于残缺信息裁决）。
+     * <p>
+     * 有改动时经 {@code setItemDirect} 改写槽位卡片并落盘；库存变化回调会再次进入本方法
+     * （彼时已无改动，安全返回）并同步卡来源注入（撤销失效组登记 / 按新组标识重注入）。
+     */
+    void reconcileCpuBindings() {
+        Level level = host.getLevel();
+        if (level == null || level.isClientSide()) {
+            return;
+        }
+        ItemStack card = configCardInventory.getStackInSlot(0);
+        if (!ConfigCardData.isConfigCard(card)) {
+            return;
+        }
+        boolean changed = reconcileCpuBindingsOnCard(card,
+                dim -> dim.equals(level.dimension()) ? level : null);
+        if (changed) {
+            // 改写槽位内卡片并落盘；setItemDirect 触发 onHostInventoryChanged -> syncConfigCardDevices，
+            // 把已不在卡上/网络内的 CONFIG_CARD 登记立即撤销（换绑则撤销旧标识、按新标识重注入）。
+            configCardInventory.setItemDirect(0, card);
+            host.saveChanges();
+        }
+    }
+
+    /**
+     * 按世界几何校验卡片上绑定的全部合成 CPU 组（就地改写卡片数据组件），返回是否有改动。
+     * <p>
+     * 供两处复用：加速器卡槽内的卡片（{@link #reconcileCpuBindings()} 为其包装）与
+     * {@code ConfigCardCleanup} 对在线玩家背包卡片的周期性兜底。判定不依赖任何破坏事件与
+     * 网格，直接以 CPU 组记录的「最小角/最大角」结构对照当前世界是否仍真实成型
+     * （见 {@link CraftingSupport#cpuGroupAt}）；记录失效时按「删 / 换绑」裁决
+     * （见 {@link CraftingSupport#cpuGroupsWithin}）。
+     *
+     * @param levelOf 按 CPU 所在维度解析世界（同一张卡可能绑定多个维度的 CPU，各自取对应世界）；
+     *                解析不到（维度未加载 / 非本机世界）时该 CPU 保持现状
+     * @return 是否有卡上记录被删除或改写
+     */
+    static boolean reconcileCpuBindingsOnCard(ItemStack card, Function<ResourceKey<Level>, Level> levelOf) {
+        List<DeviceId> boundCpus = ConfigCardData.getBoundDevices(card).stream()
+                .filter(DeviceId::isCpu)
+                .toList();
+        if (boundCpus.isEmpty()) {
+            return false;
+        }
+        boolean changed = false;
+        for (DeviceId cpuId : boundCpus) {
+            Level level = levelOf.apply(cpuId.dimension());
+            if (level == null || level.isClientSide()) {
+                continue; // 该维度世界不可用：无法校验，保持现状
+            }
+            BlockPos boundsMax = ConfigCardData.cpuBoundsMaxOf(card, cpuId);
+            if (boundsMax == null) {
+                continue; // 旧档/手工数据缺几何记录：无结构可核对，保持现状
+            }
+            // 1) O(1) 快检：记录结构仍是世界中的真实成型集群 -> 绑定有效，无需任何改动。
+            if (CraftingSupport.cpuGroupAt(level, cpuId, boundsMax) != null) {
+                continue;
+            }
+            // 2) 记录已与真实结构不一致：以记录包围盒为观察区，按「删 / 换绑」语义裁决去向。
+            List<CraftingSupport.CpuGroup> survivors = CraftingSupport.cpuGroupsWithin(level,
+                    cpuId.pos(), boundsMax);
+            if (survivors == null) {
+                continue; // 观察区含未加载区块：本次放弃，待下次周期再判
+            }
+            if (survivors.isEmpty() || survivors.size() > 1) {
+                changed |= ConfigCardData.removeCpuBinding(card, cpuId);
+            } else {
+                CraftingSupport.CpuGroup survivor = survivors.get(0);
+                changed |= ConfigCardData.replaceCpuBinding(card, cpuId, survivor.id(), survivor.boundsMax());
+            }
+        }
+        return changed;
     }
 
     /**
@@ -134,6 +227,10 @@ public final class ConfigCardBinding {
         // 避免对每个绑定设备各遍历一次全网格（满绑定 64 条时即 64 次全网格遍历）。
         Set<DeviceId> inNetwork = new HashSet<>();
         for (IGridNode node : grid.getNodes()) {
+            // 其它加速器不是可加速设备（同网络仅先放置者工作），不能作为卡来源设备绑定。
+            if (AEAcceleratorBlockEntity.isAcceleratorOwner(node.getOwner())) {
+                continue;
+            }
             if (!DeviceScanner.isAcceleratableNode(node, host)) {
                 continue;
             }

@@ -76,6 +76,11 @@ public class AEAcceleratorMenu extends AEBaseMenu {
     @GuiSync(2)
     public int maxMultiplier = AEAcceleratorBlockEntity.BASE_ACCEL_MULTIPLIER;
 
+    // 网络中是否已存在（先放置的）其它加速器，经 @GuiSync 同步到客户端。
+    // 存在时服务端设备列表采集返回空列表，客户端隐藏设备列表并显示「该网络已存在AE加速器！」。
+    @GuiSync(3)
+    public boolean duplicateAccelerator;
+
     // 用于节流设备列表采集的计数器（每配置 menu.deviceListRefreshTicks tick 检查一次，
     // 降低遍历网格的开销；默认 20 tick，见 ConfigDefaults）。
     private int lastUpdate = RuntimeConfig.menuDeviceListRefreshTicks();
@@ -86,6 +91,8 @@ public class AEAcceleratorMenu extends AEBaseMenu {
     private DeviceList cachedDevices;
     private int lastDevicesRegistryVersion = -1;
     private long lastDevicesTopology = Long.MIN_VALUE;
+    // 上次采集时的「是否存在先放置的其它加速器」标记：变化时强制重采（独占状态切换的缓存失效条件）。
+    private boolean lastDevicesDuplicate;
 
     public AEAcceleratorMenu(int containerId, Inventory playerInventory, AEAcceleratorBlockEntity host) {
         super(TYPE, containerId, playerInventory, host);
@@ -193,8 +200,12 @@ public class AEAcceleratorMenu extends AEBaseMenu {
         if (grid == null) {
             return false;
         }
-        // 普通设备：必须可加速且非自身。
+        // 普通设备：必须可加速且非自身；其它加速器同样不算合法目标
+        // （防止伪造载荷/旧残留把「其它加速器」写进持久化登记表）。
         for (IGridNode node : grid.getNodes()) {
+            if (AEAcceleratorBlockEntity.isAcceleratorOwner(node.getOwner())) {
+                continue;
+            }
             if (!DeviceScanner.isAcceleratableNode(node, host)) {
                 continue;
             }
@@ -237,6 +248,10 @@ public class AEAcceleratorMenu extends AEBaseMenu {
         // 以宿主对象为键去重，保证同一台机器在列表中只出现一次。
         Map<Object, IGridNode> nodesByOwner = new IdentityHashMap<>();
         for (IGridNode node : grid.getNodes()) {
+            // 其它加速器不是可加速设备（同网络仅先放置者工作，防止互加速与叠加），从列表排除。
+            if (AEAcceleratorBlockEntity.isAcceleratorOwner(node.getOwner())) {
+                continue;
+            }
             // 只保留可加速的设备（注册了网格 tick 服务且属于可加速机器，见 DeviceScanner）。
             if (!DeviceScanner.isAcceleratableNode(node, host)) {
                 continue;
@@ -259,9 +274,11 @@ public class AEAcceleratorMenu extends AEBaseMenu {
         // 追加网络中的合成 CPU（Crafting CPU）条目：CPU 不属于 IGridTickable，需单独采集。
         entries.addAll(collectCpus(host, origin));
 
-        // 排序：先按名称，再按与加速器的欧氏距离平方，保证列表顺序稳定（避免无意义重发）。
+        // 排序：合成 CPU 置顶（便于玩家优先配置智能加速）；其余再按名称、最后按与加速器的
+        // 欧氏距离平方排序，保证列表顺序稳定（避免无意义重发）。
         entries.sort(Comparator
-                .comparing((DeviceEntry d) -> d.name().getString())
+                .comparing((DeviceEntry d) -> !d.craftingCpu())
+                .thenComparing((DeviceEntry d) -> d.name().getString())
                 .thenComparingDouble(d -> d.pos().distSqr(origin)));
 
         return new DeviceList(entries);
@@ -360,6 +377,9 @@ public class AEAcceleratorMenu extends AEBaseMenu {
             // 每次广播都同步最高倍数（按升级卡库存与配置实时计算），使插入/取出升级卡后
             // 弹窗上限与状态文字尽快刷新；@GuiSync 仅在数值变化时才真正发包。
             maxMultiplier = host.getAccelMultiplier();
+            // 每次广播同步「同网络是否存在先放置的其它加速器」（布尔读取零开销，
+            // @GuiSync 数值变化才发包）：放置/拆除加速器后界面提示尽快切换。
+            duplicateAccelerator = host.networkHasOtherAccelerator();
             int refreshTicks = RuntimeConfig.menuDeviceListRefreshTicks();
             if (++lastUpdate >= refreshTicks) {
                 lastUpdate = 0;
@@ -379,11 +399,14 @@ public class AEAcceleratorMenu extends AEBaseMenu {
     private DeviceList getDeviceList() {
         int registryVersion = host.targetRegistryVersion();
         long topology = topologySignature(host);
+        boolean duplicate = host.networkHasOtherAccelerator();
         if (cachedDevices == null || registryVersion != lastDevicesRegistryVersion
-                || topology != lastDevicesTopology) {
-            cachedDevices = collectDevices(host);
+                || topology != lastDevicesTopology || duplicate != lastDevicesDuplicate) {
+            // 网络已存在先放置的其它加速器：不显示设备列表（由界面显示「该网络已存在AE加速器！」）。
+            cachedDevices = duplicate ? DeviceList.EMPTY : collectDevices(host);
             lastDevicesRegistryVersion = registryVersion;
             lastDevicesTopology = topology;
+            lastDevicesDuplicate = duplicate;
         }
         return cachedDevices;
     }
